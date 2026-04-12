@@ -15,15 +15,24 @@ application-local.yaml
 application-local.yml
 application-secret.yaml
 application-secret.yml
+application-dev.yaml
+application-dev.yml
+application-prod.yaml
+application-prod.yml
+
+# Keystore & certificates
+*.p12
+*.jks
+*.keystore
+*.pem
+*.key
+*.crt
 
 # Logs
 logs/
 *.log
-
-# Java
-*.class
-*.jar
-!gradle/wrapper/gradle-wrapper.jar
+hs_err_pid*.log
+*.hprof
 
 # IntelliJ IDEA
 .idea/
