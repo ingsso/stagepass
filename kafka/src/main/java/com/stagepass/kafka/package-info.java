@@ -1,2 +1,2 @@
 /** Kafka Producer / Consumer */
-package com.stagePass.kafka;
+package com.stagepass.kafka;

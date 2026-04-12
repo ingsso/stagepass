@@ -1,2 +1,2 @@
 /** Redis · Kafka 공통 설정 */
-package com.stagePass.infra;
+package com.stagepass.infra;

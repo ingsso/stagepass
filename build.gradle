@@ -8,7 +8,7 @@ subprojects {
     apply plugin: 'java'
     apply plugin: 'io.spring.dependency-management'
 
-    group = 'com.stagePass'
+    group = 'com.stagepass'
     version = '0.0.1-SNAPSHOT'
     sourceCompatibility = '21'
 

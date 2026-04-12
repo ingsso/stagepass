@@ -1,6 +1,6 @@
 spring:
   application:
-    name: stagePass-api
+    name: stagepass-api
   profiles:
     active: local
 
