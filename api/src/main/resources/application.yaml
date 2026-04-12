@@ -1,8 +1,0 @@
-spring:
-  application:
-    name: stagepass-api
-  profiles:
-    active: local
-
-server:
-  port: 8080
