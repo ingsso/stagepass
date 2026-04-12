@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew :api:compileJava --no-daemon)",
+      "Bash(./gradlew :admin:compileJava --no-daemon)",
+      "Bash(gh pr create --title 'feat: 멀티모듈 프로젝트 초기 세팅' --body ':*)",
+      "Bash(xargs sed:*)",
+      "Bash(git checkout:*)",
+      "Bash(git add:*)",
+      "Bash(git restore:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(gh pr:*)"
+    ]
+  }
+}

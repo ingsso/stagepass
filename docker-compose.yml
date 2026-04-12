@@ -3,9 +3,9 @@ services:
   postgres:
     image: postgres:16
     environment:
-      POSTGRES_DB: ticketing
-      POSTGRES_USER: ticketing
-      POSTGRES_PASSWORD: ticketing1234
+      POSTGRES_DB: stagepass
+      POSTGRES_USER: stagepass
+      POSTGRES_PASSWORD: stagepass1234
     ports:
       - "5432:5432"
 
