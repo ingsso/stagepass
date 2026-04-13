@@ -2,8 +2,7 @@ dependencies {
     implementation project(':common')
     implementation project(':domain')
     implementation project(':infra')
-    implementation 'org.springframework.kafka:spring-kafka'
+    api 'org.springframework.kafka:spring-kafka'
     implementation 'com.fasterxml.jackson.core:jackson-databind'
     implementation 'org.slf4j:slf4j-api'
-    implementation 'org.springframework.data:spring-data-jpa'
 }
