@@ -15,7 +15,12 @@
       "Bash(git fetch:*)",
       "Bash(./gradlew :kafka:compileJava)",
       "Bash(./gradlew :payment:compileJava)",
-      "Bash(./gradlew :payment:compileJava :kafka:compileJava)"
+      "Bash(./gradlew :payment:compileJava :kafka:compileJava)",
+      "Bash(netstat -ano)",
+      "Bash(tasklist)",
+      "Bash(docker stop:*)",
+      "Bash(docker-compose up:*)",
+      "Bash(./gradlew :api:build -x test)"
     ]
   }
 }
