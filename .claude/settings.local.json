@@ -20,7 +20,8 @@
       "Bash(tasklist)",
       "Bash(docker stop:*)",
       "Bash(docker-compose up:*)",
-      "Bash(./gradlew :api:build -x test)"
+      "Bash(./gradlew :api:build -x test)",
+      "Bash(./gradlew :admin:build -x test)"
     ]
   }
 }
