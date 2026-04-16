@@ -5,7 +5,6 @@ dependencies {
     implementation project(':domain')
     implementation project(':infra')
     implementation project(':kafka')
-    implementation project(':payment')
     implementation project(':notification')
 
     implementation 'org.springframework.boot:spring-boot-starter-web'

@@ -10,7 +10,7 @@ import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.infra.redis.PendingPaymentRedisRepository;
 import com.stagepass.kafka.event.PaymentRequestedEvent;
 import com.stagepass.kafka.producer.EventPublisher;
-import com.stagepass.payment.dto.PaymentRequest;
+import com.stagepass.api.payment.dto.PaymentConfirmRequest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -46,7 +46,7 @@ public class ApiPaymentService {
 
   // 결제 승인 요청 → Kafka payment.requested 발행 (Saga 시작)
   @Transactional
-  public void confirmPayment(Long userId, PaymentRequest request) {
+  public void confirmPayment(Long userId, PaymentConfirmRequest request) {
     // orderId 유효성 검증 (initPayment에서 발급된 것인지 확인)
     Long reservationIdFromRedis = pendingPaymentRepository.get(request.getOrderId());
     if (reservationIdFromRedis == null) {
