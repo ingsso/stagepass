@@ -128,6 +128,8 @@ public class QueueService {
   }
 
   private void activateUser(Long showId, Long userId, Long rank) {
+    queueEntryRepository.findByShowIdAndUserId(showId, userId)
+        .ifPresent(QueueEntry::activate);
     eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, rank));
     log.info("[Queue] 입장 허가 showId={} userId={}", showId, userId);
   }

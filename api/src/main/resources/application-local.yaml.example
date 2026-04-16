@@ -1,0 +1,29 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://localhost:5432/stagepass
+    username: your-db-username
+    password: your-db-password
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  kafka:
+    bootstrap-servers: localhost:9092
+    consumer:
+      group-id: stagepass-group
+
+jwt:
+  secret: your-jwt-secret-must-be-at-least-32-characters-long
+  expiration: 1800000
+  refresh-expiration: 604800000
+
+toss:
+  secret-key: your-toss-secret-key
+  client-key: your-toss-client-key

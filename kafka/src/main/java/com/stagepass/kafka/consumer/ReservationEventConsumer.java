@@ -41,9 +41,9 @@ public class ReservationEventConsumer {
 
       reservation.confirm();
 
-      // 좌석 DB 상태 RESERVED 로 확정
+      // 좌석 DB 상태 RESERVED 로 확정 (JOIN FETCH로 N+1 방지)
       List<ReservationSeat> reservationSeats =
-          reservationSeatRepository.findByReservationId(reservation.getId());
+          reservationSeatRepository.findByReservationIdWithSeat(reservation.getId());
       for (ReservationSeat rs : reservationSeats) {
         rs.getSeat().reserve();
       }
@@ -66,9 +66,9 @@ public class ReservationEventConsumer {
 
       reservation.expire();
 
-      // Redis 선점 해제 (보상 트랜잭션)
+      // Redis 선점 해제 (보상 트랜잭션, JOIN FETCH로 N+1 방지)
       List<ReservationSeat> reservationSeats =
-          reservationSeatRepository.findByReservationId(reservation.getId());
+          reservationSeatRepository.findByReservationIdWithSeat(reservation.getId());
       for (ReservationSeat rs : reservationSeats) {
         seatRedisRepository.release(rs.getSeat().getId(), event.getUserId());
       }

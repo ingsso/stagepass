@@ -30,6 +30,8 @@ public class SecurityConfig {
             .requestMatchers("/api/auth/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/performances/**").permitAll()
             .requestMatchers(HttpMethod.GET, "/api/shows/**").permitAll()
+            // Swagger
+            .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
             // 인증 필요
             .anyRequest().authenticated()
         )
