@@ -37,7 +37,7 @@ public class ReservationExpiryScheduler {
     for (Reservation reservation : expired) {
       reservation.expire();
 
-      reservationSeatRepository.findByReservationId(reservation.getId())
+      reservationSeatRepository.findByReservationIdWithSeat(reservation.getId())
           .forEach(rs -> {
             seatRedisRepository.release(
                 rs.getSeat().getId(),
