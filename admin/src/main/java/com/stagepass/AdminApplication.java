@@ -1,9 +1,9 @@
-package com.stagepass.admin;
+package com.stagepass;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
-@SpringBootApplication(scanBasePackages = "com.stagepass")
+@SpringBootApplication
 public class AdminApplication {
 
     public static void main(String[] args) {

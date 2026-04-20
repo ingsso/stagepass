@@ -1,10 +1,10 @@
-package com.stagepass.api;
+package com.stagepass;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
-@SpringBootApplication(scanBasePackages = "com.stagepass")
+@SpringBootApplication
 @EnableScheduling
 public class ApiApplication {
 
