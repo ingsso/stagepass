@@ -137,9 +137,9 @@ export default function () {
     return;
   }
 
-  // ── 8. 테스트 유저 100명 생성 ─────────────────────────────
+  // ── 8. 테스트 유저 1000명 생성 ─────────────────────────────
   const tokens = [];
-  for (let i = 0; i < 100; i++) {
+  for (let i = 0; i < 1000; i++) {
     const email = `test_user_${i}@stagepass.test`;
 
     http.post(`${BASE_URL}/api/auth/signup`, JSON.stringify({
@@ -158,7 +158,7 @@ export default function () {
       console.error(`유저${i} 로그인 실패`);
     }
   }
-  console.log(`유저 토큰 수집 완료: ${tokens.length}개`);
+  console.log(`유저 토큰 수집 완료: ${tokens.length}개 (목표: 1000개)`);
 
   // ── 결과 출력 ─────────────────────────────────────────────
   const result = { showId, seatIds, tokens };

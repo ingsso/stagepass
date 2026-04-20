@@ -25,7 +25,7 @@ http.setResponseCallback(http.expectedStatuses(200));
 
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const SHOW_ID  = __ENV.SHOW_ID  || '1';
-const VU_COUNT = 50;
+const VU_COUNT = 1000;
 
 const testData = new SharedArray('testData', function () {
   return [JSON.parse(open('./data/test-data.json'))];
@@ -40,13 +40,13 @@ export const options = {
       executor: 'shared-iterations',
       vus: VU_COUNT,
       iterations: VU_COUNT,
-      maxDuration: '30s',
+      maxDuration: '60s',
     },
   },
   thresholds: {
-    queue_enter_success: [`count >= ${VU_COUNT - 1}`], // Windows 네트워크 바인딩 에러 1건 허용
-    http_req_failed:     ['rate < 0.05'],              // 5% 미만 (OS 레벨 네트워크 에러 허용)
-    http_req_duration:   ['p(95) < 500'],
+    queue_enter_success: [`count >= ${VU_COUNT * 0.95}`], // 핵심: 95% 이상 성공 (OS 에러 5% 허용)
+    http_req_failed:     ['rate < 0.10'],                 // OS 네트워크 에러 10% 미만 (로컬 1000-VU 환경)
+    http_req_duration:   ['p(95) < 3000'],                // 로컬 1000-VU 극한 환경 기준
   },
 };
 
