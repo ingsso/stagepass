@@ -21,6 +21,9 @@ import { check, sleep } from 'k6';
 import { Counter, Rate } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
+// 200, 409는 모두 예상된 응답 — http_req_failed 에서 제외
+http.setResponseCallback(http.expectedStatuses(200, 409));
+
 const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
 const SHOW_ID  = __ENV.SHOW_ID  || '1';
 const SEAT_ID  = __ENV.SEAT_ID  || '1';

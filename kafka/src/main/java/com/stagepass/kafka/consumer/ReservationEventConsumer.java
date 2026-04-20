@@ -12,6 +12,7 @@ import com.stagepass.infra.redis.SeatRedisRepository;
 import com.stagepass.kafka.event.PaymentResultEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
@@ -21,6 +22,7 @@ import java.util.List;
 
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "spring.kafka.bootstrap-servers")
 @RequiredArgsConstructor
 public class ReservationEventConsumer {
 

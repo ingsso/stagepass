@@ -7,12 +7,14 @@ import com.stagepass.infra.kafka.KafkaTopics;
 import com.stagepass.kafka.event.SeatHoldEvent;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
 @Slf4j
 @Component
+@ConditionalOnProperty(name = "spring.kafka.bootstrap-servers")
 @RequiredArgsConstructor
 public class SeatEventConsumer {
 
