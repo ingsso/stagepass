@@ -78,10 +78,13 @@ public class SeatService {
       throw new BusinessException(ErrorCode.SEAT_ALREADY_HELD);
     }
 
-    // 예매 레코드 생성
-    int totalPrice = heldIds.stream()
-        .map(seatId -> seatRepository.findById(seatId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.SEAT_NOT_FOUND)))
+    // 선점된 좌석 일괄 조회 (zone JOIN FETCH — N+1 방지)
+    List<Seat> seats = seatRepository.findAllByIdWithZone(heldIds);
+    if (seats.size() != heldIds.size()) {
+      throw new BusinessException(ErrorCode.SEAT_NOT_FOUND);
+    }
+
+    int totalPrice = seats.stream()
         .mapToInt(seat -> seat.getZone().getPrice())
         .sum();
 
@@ -92,17 +95,14 @@ public class SeatService {
         .build();
     reservationRepository.save(reservation);
 
-    // ReservationSeat 생성
-    for (Long seatId : heldIds) {
-      Seat seat = seatRepository.findById(seatId)
-          .orElseThrow(() -> new BusinessException(ErrorCode.SEAT_NOT_FOUND));
-      reservationSeatRepository.save(
-          ReservationSeat.builder()
-              .reservation(reservation)
-              .seat(seat)
-              .build()
-      );
-    }
+    // ReservationSeat 일괄 저장
+    List<ReservationSeat> reservationSeats = seats.stream()
+        .map(seat -> ReservationSeat.builder()
+            .reservation(reservation)
+            .seat(seat)
+            .build())
+        .toList();
+    reservationSeatRepository.saveAll(reservationSeats);
 
     // Kafka 이벤트 발행
     long expiresAt = System.currentTimeMillis() + 300_000L;

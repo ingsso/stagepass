@@ -22,4 +22,7 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
 
   @Query("SELECT COUNT(s) FROM Seat s WHERE s.zone.show.id = :showId AND s.status = 'AVAILABLE'")
   int countAvailableByShowId(@Param("showId") Long showId);
+
+  @Query("SELECT s FROM Seat s JOIN FETCH s.zone WHERE s.id IN :ids")
+  List<Seat> findAllByIdWithZone(@Param("ids") List<Long> ids);
 }

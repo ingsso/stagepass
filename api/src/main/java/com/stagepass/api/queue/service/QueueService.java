@@ -99,15 +99,15 @@ public class QueueService {
   }
 
   // 결제 완료 후 다음 배치 입장 허가 (PaymentService 에서 호출)
+  // ZSet range 결과는 score 오름차순으로 순서가 보장되므로 getRank() 재조회 불필요
   @Transactional
   public void activateNextBatch(Long showId) {
     Set<String> top = queueRedisRepository.getTop(showId, ACTIVATE_BATCH_SIZE);
     if (top == null || top.isEmpty()) return;
 
+    long rank = 1L;
     for (String userIdStr : top) {
-      Long userId = Long.parseLong(userIdStr);
-      Long rank = queueRedisRepository.getRank(showId, userId);
-      activateUser(showId, userId, rank);
+      activateUser(showId, Long.parseLong(userIdStr), rank++);
     }
 
     log.info("[Queue] 다음 배치 입장 허가 showId={} count={}", showId, top.size());
