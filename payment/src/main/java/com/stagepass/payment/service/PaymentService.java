@@ -111,8 +111,15 @@ public class PaymentService {
     Payment payment = paymentRepository.findByReservationId(reservationId)
         .orElseThrow(() -> new RuntimeException("결제 정보 없음"));
 
-    // 토스 취소 API는 별도 구현 (생략 — 실제 연동 시 추가)
+    if (payment.getTossPaymentKey() != null) {
+      tossPaymentClient.cancel(
+          payment.getTossPaymentKey(),
+          "사용자 예매 취소",
+          payment.getAmount()
+      );
+    }
+
     payment.cancel();
-    log.info("[Payment] 결제 취소 reservationId={}", reservationId);
+    log.info("[Payment] 결제 취소 완료 reservationId={}", reservationId);
   }
 }

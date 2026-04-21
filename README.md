@@ -279,6 +279,52 @@ Redis Sorted Set
 
 <br>
 
+## 부하 테스트 결과 (k6)
+
+로컬 환경(MacBook M2, Docker)에서 k6로 측정한 결과입니다.
+
+### 처리량 테스트 — 좌석 목록 조회 API
+
+| 항목 | 결과 |
+|------|------|
+| 최대 RPS | **103 req/s** (목표 200 RPS 단계 중) |
+| p95 응답시간 | **10ms** |
+| 에러율 | **0.01%** 미만 |
+| 총 요청 수 | 12,949건 |
+
+> Redis `@Cacheable` (TTL 10s) 적용 후 DB 부하 없이 p95 10ms 달성
+
+### 동시 선점 테스트 — Redis SET NX 원자성 검증
+
+| 항목 | 결과 |
+|------|------|
+| 동시 VU | **1,000명** |
+| 선점 성공 | **1명** (목표: exactly 1) |
+| SEAT_ALREADY_HELD (409) | **997건** |
+| p95 응답시간 | 1,183ms (로컬 1000-VU 극한 환경) |
+
+> 1,000명이 동일 좌석에 동시 요청해도 **정확히 1명만 선점 성공** — Redis 원자성 검증 완료
+
+<br>
+
+## SSE 알림 — 현재 구조와 한계
+
+현재 `SseEmitterRepository`는 서버 인메모리 `ConcurrentHashMap`에 Emitter를 저장합니다.
+
+```
+단일 서버: Client → notification 서버 SSE 연결 → ConcurrentHashMap[userId] → 이벤트 push ✅
+수평 확장: Client → 서버 A에 연결, Kafka Consumer는 서버 B에서 실행 → push 불가 ❌
+```
+
+**개선 방향**: Redis Pub/Sub으로 서버 간 이벤트를 공유하면 수평 확장 가능
+
+```
+Kafka Consumer(서버 B) → Redis Publish(userId 채널)
+서버 A → Redis Subscribe → 해당 userId SSE push
+```
+
+<br>
+
 ## 실행 방법
 
 ### 1. 인프라 실행
@@ -334,3 +380,5 @@ cp payment/src/main/resources/application-local.yaml.example payment/src/main/re
 - `AuthServiceTest` — 회원가입, 로그인, 토큰 재발급, 로그아웃 (8개)
 - `SeatServiceTest` — 좌석 선점 성공/실패/롤백 (4개)
 - `PaymentServiceTest` — 결제 성공/실패/멱등성 (3개)
+- `QueueServiceTest` — 대기열 진입/순번/입장 허가 (12개)
+- `SeatConcurrencyIntegrationTest` — **실제 Redis(Testcontainers)** 동시 선점 원자성 검증 (3개)
