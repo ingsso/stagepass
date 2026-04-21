@@ -1,0 +1,10 @@
+rootProject.name = 'stagepass'
+
+include 'common'
+include 'domain'
+include 'infra'
+include 'api'
+include 'kafka'
+include 'payment'
+include 'notification'
+include 'admin'
