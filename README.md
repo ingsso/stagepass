@@ -1,8 +1,6 @@
-# 🎭 StagePass
+# StagePass - 공연 티켓 예매 시스템
 
-> 공연 티켓 예매 플랫폼 — Kafka 기반 분산 처리 & 실시간 대기열 시스템
-
-<br>
+> Kafka 기반 분산 처리 & Redis 동시성 제어로 구현한 이벤트 기반 MSA 프로젝트
 
 ## 목차
 
@@ -65,45 +63,83 @@ ticket.seat.hold 이벤트 발행 → Consumer가 DB 기록
 
 | 영역 | 기술 |
 |------|------|
-| Backend | Java 21, Spring Boot 3.3, Multi-module |
-| Frontend | Next.js 14 App Router, TypeScript |
+| Backend | Java 21, Spring Boot 3.3, Gradle 멀티모듈 |
 | Message Broker | Apache Kafka |
 | Cache / 동시성 | Redis 7 |
 | Database | PostgreSQL 16 |
 | 결제 | 토스페이먼츠 |
 | 실시간 통신 | SSE (Server-Sent Events) |
-| 인증 | JWT (Access + Refresh Token), OAuth2 (카카오) |
-| 배포 | Railway (백엔드), Vercel (프론트엔드) |
+| 인증 | JWT (Access 1h + Refresh 7d), BCrypt |
+| API 문서 | SpringDoc OpenAPI (Swagger UI) |
+| 테스트 | JUnit 5, Mockito |
 | 로컬 인프라 | Docker Compose |
 
 <br>
 
 ## 시스템 아키텍처
 
+```mermaid
+graph TB
+    Client["Client (Browser)"]
+
+    subgraph Services["Spring Boot Services"]
+        API["api :8080\nREST API + JWT + Security"]
+        Admin["admin :8081\n공연/회차/좌석 관리"]
+        Payment["payment :8082\nToss Payments + Saga"]
+        Notification["notification :8083\nSSE 알림 발송"]
+    end
+
+    subgraph Infra["Infrastructure (Docker Compose)"]
+        PG[("PostgreSQL :5432")]
+        Redis[("Redis :6379")]
+        Kafka["Kafka :9092"]
+    end
+
+    Client -->|REST| API
+    Client -->|REST| Admin
+    Client -.->|SSE| Notification
+
+    API --> PG
+    API --> Redis
+    API -->|seat.hold| Kafka
+
+    Payment --> PG
+    Payment -->|payment.completed\npayment.failed| Kafka
+
+    Notification -->|queue.activated\npayment.*| Kafka
+
+    Admin --> PG
+    Admin --> Redis
 ```
-┌─────────────────────────────────────────────────────┐
-│                   Next.js 14 (Vercel)               │
-└──────────────────────┬──────────────────────────────┘
-                       │ REST / SSE
-┌──────────────────────▼──────────────────────────────┐
-│                  api 모듈 :8080                      │
-│         (Spring Security + JWT + OAuth2)             │
-└──────┬───────────────┬──────────────────┬───────────┘
-       │               │                  │
-       ▼               ▼                  ▼
-  [Redis]         [Kafka Topics]      [PostgreSQL]
-  좌석 선점        이벤트 발행/구독
-  대기열 관리
-       │               │
-       │    ┌──────────┼──────────────┐
-       │    ▼          ▼              ▼
-       │ [kafka]   [payment]    [notification]
-       │  모듈      모듈 (Saga)    모듈 (SSE)
-       │
-┌──────▼────────────────────────────────────────────┐
-│               admin 모듈 :8081                    │
-│          공연 등록, 예매 현황, 통계 대시보드        │
-└───────────────────────────────────────────────────┘
+
+### 좌석 선점 시퀀스
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant A as API
+    participant R as Redis
+    participant K as Kafka
+    participant P as Payment
+
+    C->>A: POST /api/shows/{showId}/seats/hold
+    A->>R: SET seat:{id}:holder NX PX 300000 (각 좌석)
+    alt 모든 좌석 선점 성공
+        A->>A: Reservation 저장 (PENDING)
+        A->>K: seat.hold 이벤트 발행
+        A-->>C: 200 OK (heldSeatIds)
+        K->>P: PaymentRequestedEvent
+        P->>P: Toss API 승인 요청
+        alt 결제 성공
+            P->>K: payment.completed
+        else 결제 실패
+            P->>K: payment.failed
+            P->>R: 좌석 선점 해제 (보상 트랜잭션)
+        end
+    else 일부 좌석 선점 실패
+        A->>R: 선점 성공한 좌석 전체 rollback
+        A-->>C: 409 SEAT_ALREADY_HELD
+    end
 ```
 
 <br>
@@ -161,28 +197,25 @@ shows
 
 ## 주요 기능
 
-### 사용자
+### 사용자 API
 | 기능 | 설명 |
 |------|------|
 | 회원가입 / 로그인 | JWT (Access 1h + Refresh 7d), Redis Refresh Token 관리 |
-| 소셜 로그인 | 카카오 OAuth2 |
-| 공연 목록 / 검색 | 장르, 날짜, 지역 필터 |
-| 좌석 선택 | 인터랙티브 좌석 배치도, 실시간 잔여석 표시 |
-| 좌석 선점 | Redis 원자적 선점, TTL 5분 |
-| 결제 | 토스페이먼츠 테스트 연동 |
-| 예매 내역 | 확인 / 취소 |
+| 토큰 재발급 / 로그아웃 | Refresh Token 검증, Redis 토큰 삭제 |
+| 공연 목록 조회 | 회차별 좌석 현황 포함 |
+| 좌석 선점 | Redis 원자적 선점 (SET NX), TTL 5분, 실패 시 전체 롤백 |
+| 결제 요청 | 토스페이먼츠 연동, Kafka 이벤트 발행 |
+| 예매 내역 | JOIN FETCH로 N+1 방지 |
 | 실시간 알림 | SSE — 예매 완료 / 결제 실패 / 대기열 입장 |
-| 대기열 | 티켓 오픈 시 순번 발급, 실시간 순번 안내 |
+| 대기열 | Redis Sorted Set 순번 발급, 실시간 순번 안내 |
 
-### 어드민
+### 관리자 API
 | 기능 | 설명 |
 |------|------|
-| 공연 등록 / 수정 / 삭제 | 포스터 이미지, 장르, 공연장 정보 |
+| 공연 등록 / 수정 / 삭제 | 공연 기본 정보 관리 |
 | 회차 관리 | 날짜 / 시간, 총 좌석 수 설정 |
-| 구역 / 좌석 설정 | 등급별 가격, 좌석 배치 |
-| 예매 현황 | 회차별 예매율, 잔여석 |
-| 결제 내역 | 결제 상태 조회, 환불 처리 |
-| 통계 대시보드 | 일별 매출, 예매 통계 |
+| 구역 / 좌석 설정 | 등급별 가격, 행/열 기반 좌석 일괄 생성 |
+| 예매 현황 | 회차별 예매 목록 조회 |
 
 <br>
 
@@ -248,7 +281,7 @@ Redis Sorted Set
 
 ## 실행 방법
 
-### 로컬 인프라 실행
+### 1. 인프라 실행
 
 ```bash
 docker-compose up -d
@@ -259,37 +292,45 @@ docker-compose up -d
 | PostgreSQL | 5432 |
 | Redis | 6379 |
 | Kafka | 9092 |
+| Zookeeper | 2181 |
 
-### 애플리케이션 실행
+### 2. 설정 파일 생성
 
 ```bash
-# API 서버
-./gradlew :api:bootRun
-
-# 어드민 서버
-./gradlew :admin:bootRun
+cp api/src/main/resources/application-local.yaml.example api/src/main/resources/application-local.yaml
+cp payment/src/main/resources/application-local.yaml.example payment/src/main/resources/application-local.yaml
 ```
 
-### 환경 변수
+`application-local.yaml`에서 JWT 시크릿, Toss API 키를 설정합니다.
 
-`api/src/main/resources/application-local.yml` 생성 후 아래 값 설정:
+### 3. 애플리케이션 실행
 
-```yaml
-spring:
-  datasource:
-    url: jdbc:postgresql://localhost:5432/ticketing
-    username: ticketing
-    password: ticketing1234
+```bash
+# API 서버 (:8080)
+./gradlew :api:bootRun --args='--spring.profiles.active=local'
 
-jwt:
-  secret: your-secret-key
+# 결제 서버 (:8082)
+./gradlew :payment:bootRun --args='--spring.profiles.active=local'
 
-toss:
-  client-key: test_ck_...
-  secret-key: test_sk_...
+# 알림 서버 (:8083)
+./gradlew :notification:bootRun --args='--spring.profiles.active=local'
 
-oauth2:
-  kakao:
-    client-id: your-kakao-client-id
-    client-secret: your-kakao-client-secret
+# 관리자 서버 (:8081)
+./gradlew :admin:bootRun --args='--spring.profiles.active=local'
 ```
+
+### 4. API 문서 확인
+
+- API: http://localhost:8080/swagger-ui.html
+- Admin: http://localhost:8081/swagger-ui.html
+
+### 5. 테스트 실행
+
+```bash
+./gradlew test
+```
+
+주요 테스트:
+- `AuthServiceTest` — 회원가입, 로그인, 토큰 재발급, 로그아웃 (8개)
+- `SeatServiceTest` — 좌석 선점 성공/실패/롤백 (4개)
+- `PaymentServiceTest` — 결제 성공/실패/멱등성 (3개)

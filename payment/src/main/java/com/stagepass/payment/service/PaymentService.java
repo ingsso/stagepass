@@ -13,6 +13,7 @@ import com.stagepass.payment.dto.TossPaymentConfirmRequest;
 import com.stagepass.payment.dto.TossPaymentResponse;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
@@ -23,6 +24,7 @@ import com.stagepass.kafka.event.PaymentRequestedEvent;
 
 @Slf4j
 @Service
+@ConditionalOnProperty(name = "spring.kafka.bootstrap-servers")
 @RequiredArgsConstructor
 public class PaymentService {
 

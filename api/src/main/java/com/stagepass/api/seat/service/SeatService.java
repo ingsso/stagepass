@@ -15,6 +15,8 @@ import com.stagepass.kafka.event.SeatHoldEvent;
 import com.stagepass.kafka.producer.EventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -35,22 +37,22 @@ public class SeatService {
   private final SeatRedisRepository seatRedisRepository;
   private final EventPublisher eventPublisher;
 
-  // 회차별 좌석 목록 조회 (Redis TTL 포함)
+  // 회차별 좌석 목록 조회 — N+1 제거(JOIN FETCH) + Redis 캐싱(TTL 10s)
+  @Cacheable(value = "seat-list", key = "#showId")
   @Transactional(readOnly = true)
   public List<SeatResponse> getSeats(Long showId) {
-    List<Zone> zones = zoneRepository.findByShowId(showId);
+    List<Seat> seats = seatRepository.findByShowIdWithZone(showId);
     List<SeatResponse> result = new ArrayList<>();
 
-    for (Zone zone : zones) {
-      for (Seat seat : seatRepository.findByZoneId(zone.getId())) {
-        long ttl = seatRedisRepository.getRemainingTtl(seat.getId());
-        result.add(new SeatResponse(seat, ttl > 0 ? ttl : null));
-      }
+    for (Seat seat : seats) {
+      long ttl = seatRedisRepository.getRemainingTtl(seat.getId());
+      result.add(new SeatResponse(seat, ttl > 0 ? ttl : null));
     }
     return result;
   }
 
-  // 좌석 선점 — Redis SET NX PX
+  // 좌석 선점 — Redis SET NX PX + 캐시 무효화
+  @CacheEvict(value = "seat-list", key = "#showId")
   @Transactional
   public SeatHoldResponse holdSeats(Long showId, Long userId, SeatHoldRequest request) {
     User user = userRepository.findById(userId)
@@ -76,10 +78,13 @@ public class SeatService {
       throw new BusinessException(ErrorCode.SEAT_ALREADY_HELD);
     }
 
-    // 예매 레코드 생성
-    int totalPrice = heldIds.stream()
-        .map(seatId -> seatRepository.findById(seatId)
-            .orElseThrow(() -> new BusinessException(ErrorCode.SEAT_NOT_FOUND)))
+    // 선점된 좌석 일괄 조회 (zone JOIN FETCH — N+1 방지)
+    List<Seat> seats = seatRepository.findAllByIdWithZone(heldIds);
+    if (seats.size() != heldIds.size()) {
+      throw new BusinessException(ErrorCode.SEAT_NOT_FOUND);
+    }
+
+    int totalPrice = seats.stream()
         .mapToInt(seat -> seat.getZone().getPrice())
         .sum();
 
@@ -90,17 +95,14 @@ public class SeatService {
         .build();
     reservationRepository.save(reservation);
 
-    // ReservationSeat 생성
-    for (Long seatId : heldIds) {
-      Seat seat = seatRepository.findById(seatId)
-          .orElseThrow(() -> new BusinessException(ErrorCode.SEAT_NOT_FOUND));
-      reservationSeatRepository.save(
-          ReservationSeat.builder()
-              .reservation(reservation)
-              .seat(seat)
-              .build()
-      );
-    }
+    // ReservationSeat 일괄 저장
+    List<ReservationSeat> reservationSeats = seats.stream()
+        .map(seat -> ReservationSeat.builder()
+            .reservation(reservation)
+            .seat(seat)
+            .build())
+        .toList();
+    reservationSeatRepository.saveAll(reservationSeats);
 
     // Kafka 이벤트 발행
     long expiresAt = System.currentTimeMillis() + 300_000L;
@@ -116,7 +118,8 @@ public class SeatService {
     return new SeatHoldResponse(heldIds, failedIds, reservation.getId(), expiresAt);
   }
 
-  // 선점 해제
+  // 선점 해제 + 캐시 무효화
+  @CacheEvict(value = "seat-list", allEntries = true)
   @Transactional
   public void releaseSeats(Long reservationId, Long userId) {
     Reservation reservation = reservationRepository.findByIdAndUserId(reservationId, userId)
