@@ -1,4 +1,4 @@
-package com.stagepass.notification;
+package com.stagepass;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -11,7 +11,7 @@ import org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfigurat
 })
 public class NotificationApplication {
 
-  public static void main(String[] args) {
-    SpringApplication.run(NotificationApplication.class, args);
-  }
+    public static void main(String[] args) {
+        SpringApplication.run(NotificationApplication.class, args);
+    }
 }

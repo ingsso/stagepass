@@ -11,6 +11,9 @@ public interface SeatRepository extends JpaRepository<Seat, Long> {
 
   List<Seat> findByZoneId(Long zoneId);
 
+  @Query("SELECT s FROM Seat s JOIN FETCH s.zone z WHERE z.show.id = :showId")
+  List<Seat> findByShowIdWithZone(@Param("showId") Long showId);
+
   Optional<Seat> findByZoneIdAndSeatCode(Long zoneId, String seatCode);
 
   @Query("SELECT s FROM Seat s WHERE s.zone.show.id = :showId AND s.status = :status")

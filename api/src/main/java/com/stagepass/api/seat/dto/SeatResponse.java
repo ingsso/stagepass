@@ -1,5 +1,7 @@
 package com.stagepass.api.seat.dto;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.stagepass.domain.performance.Seat;
 import lombok.Getter;
 
@@ -13,6 +15,26 @@ public class SeatResponse {
   private final String grade;
   private final Integer price;
   private final Long remainingSeconds; // Redis TTL
+
+  @JsonCreator
+  public SeatResponse(
+      @JsonProperty("id") Long id,
+      @JsonProperty("seatCode") String seatCode,
+      @JsonProperty("rowNum") Integer rowNum,
+      @JsonProperty("colNum") Integer colNum,
+      @JsonProperty("status") String status,
+      @JsonProperty("grade") String grade,
+      @JsonProperty("price") Integer price,
+      @JsonProperty("remainingSeconds") Long remainingSeconds) {
+    this.id = id;
+    this.seatCode = seatCode;
+    this.rowNum = rowNum;
+    this.colNum = colNum;
+    this.status = status;
+    this.grade = grade;
+    this.price = price;
+    this.remainingSeconds = remainingSeconds;
+  }
 
   public SeatResponse(Seat seat, Long remainingSeconds) {
     this.id = seat.getId();
