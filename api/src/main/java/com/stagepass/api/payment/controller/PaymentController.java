@@ -3,7 +3,7 @@ package com.stagepass.api.payment.controller;
 import com.stagepass.api.payment.dto.*;
 import com.stagepass.api.payment.service.ApiPaymentService;
 import com.stagepass.common.response.ApiResponse;
-import com.stagepass.payment.dto.PaymentRequest;
+import com.stagepass.api.payment.dto.PaymentConfirmRequest;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -32,7 +32,7 @@ public class PaymentController {
   @PostMapping("/confirm")
   public ResponseEntity<ApiResponse<Void>> confirmPayment(
       @AuthenticationPrincipal Long userId,
-      @RequestBody PaymentRequest request) {
+      @RequestBody PaymentConfirmRequest request) {
     apiPaymentService.confirmPayment(userId, request);
     return ResponseEntity.ok(ApiResponse.ok());
   }
