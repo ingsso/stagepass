@@ -7,4 +7,6 @@ dependencies {
     implementation project(':kafka')
     implementation 'org.springframework.boot:spring-boot-starter-web'
     runtimeOnly 'org.postgresql:postgresql'
+
+    testImplementation 'org.mockito:mockito-core'
 }
