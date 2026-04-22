@@ -27,8 +27,17 @@ public enum ErrorCode {
 
   // 예매 / 결제
   RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "예매 정보를 찾을 수 없습니다."),
+  RESERVATION_NOT_CONFIRMED(HttpStatus.BAD_REQUEST, "확정된 예매만 양도할 수 있습니다."),
   PAYMENT_FAILED(HttpStatus.BAD_REQUEST, "결제에 실패했습니다."),
-  DUPLICATE_PAYMENT(HttpStatus.CONFLICT, "이미 처리된 결제입니다.");
+  DUPLICATE_PAYMENT(HttpStatus.CONFLICT, "이미 처리된 결제입니다."),
+
+  // 양도
+  TRANSFER_NOT_FOUND(HttpStatus.NOT_FOUND, "양도 게시글을 찾을 수 없습니다."),
+  TRANSFER_ALREADY_EXISTS(HttpStatus.CONFLICT, "이미 양도 게시글이 존재합니다."),
+  TRANSFER_ALREADY_CLAIMED(HttpStatus.CONFLICT, "이미 양도된 티켓입니다."),
+  TRANSFER_NOT_OPEN(HttpStatus.BAD_REQUEST, "양도 가능한 상태가 아닙니다."),
+  TRANSFER_SHOW_ENDED(HttpStatus.BAD_REQUEST, "공연이 이미 시작되어 양도할 수 없습니다."),
+  TRANSFER_SELF_CLAIM(HttpStatus.BAD_REQUEST, "본인 양도 글은 수락할 수 없습니다.");
 
   private final HttpStatus status;
   private final String message;
