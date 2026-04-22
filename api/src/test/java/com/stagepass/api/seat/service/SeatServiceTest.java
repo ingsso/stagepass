@@ -101,8 +101,7 @@ class SeatServiceTest {
     given(showRepository.findById(showId)).willReturn(Optional.of(show));
     given(seatRedisRepository.hold(10L, userId)).willReturn(true);
     given(seatRedisRepository.hold(11L, userId)).willReturn(true);
-    given(seatRepository.findById(10L)).willReturn(Optional.of(seat1));
-    given(seatRepository.findById(11L)).willReturn(Optional.of(seat2));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
     given(reservationRepository.save(any())).willReturn(
         Reservation.builder().user(user).show(show).totalPrice(200000).build()
     );
