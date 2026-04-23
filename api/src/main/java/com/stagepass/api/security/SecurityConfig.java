@@ -32,6 +32,10 @@ public class SecurityConfig {
             .requestMatchers(HttpMethod.GET, "/api/shows/**").permitAll()
             // Swagger
             .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+            // 어드민 전용
+            .requestMatchers(HttpMethod.POST, "/api/performances", "/api/performances/*/shows").hasRole("ADMIN")
+            .requestMatchers(HttpMethod.PUT, "/api/performances/**").hasRole("ADMIN")
+            .requestMatchers(HttpMethod.DELETE, "/api/performances/**").hasRole("ADMIN")
             // 인증 필요
             .anyRequest().authenticated()
         )
