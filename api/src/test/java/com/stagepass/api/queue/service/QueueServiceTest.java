@@ -245,11 +245,8 @@ class QueueServiceTest {
     // given
     given(queueRedisRepository.getTop(SHOW_ID, 10))
         .willReturn(Set.of("101", "102", "103"));
-    given(queueRedisRepository.getRank(SHOW_ID, 101L)).willReturn(1L);
-    given(queueRedisRepository.getRank(SHOW_ID, 102L)).willReturn(2L);
-    given(queueRedisRepository.getRank(SHOW_ID, 103L)).willReturn(3L);
     given(queueEntryRepository.findByShowIdAndUserId(any(), any()))
-        .willReturn(Optional.empty()); // entry 없어도 Kafka는 발행
+        .willReturn(Optional.empty());
 
     // when
     queueService.activateNextBatch(SHOW_ID);
@@ -300,7 +297,6 @@ class QueueServiceTest {
     given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, USER_ID))
         .willReturn(Optional.of(entry));
     given(queueRedisRepository.getTop(SHOW_ID, 10)).willReturn(Set.of("200"));
-    given(queueRedisRepository.getRank(SHOW_ID, 200L)).willReturn(1L);
     given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, 200L))
         .willReturn(Optional.empty());
 
