@@ -26,7 +26,7 @@ import static org.assertj.core.api.Assertions.assertThat;
  * 실제 Redis(Testcontainers)를 사용한 좌석 동시 선점 통합 테스트.
  * SeatRedisRepository.hold()의 SET NX 로직을 직접 재현하여 원자성을 검증한다.
  */
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 class SeatConcurrencyIntegrationTest {
 
     private static final String KEY_PREFIX = "seat:hold:";
