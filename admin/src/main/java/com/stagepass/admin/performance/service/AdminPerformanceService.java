@@ -74,9 +74,7 @@ public class AdminPerformanceService {
   public void updateShowStatus(Long showId, String status) {
     Show show = showRepository.findById(showId)
         .orElseThrow(() -> new BusinessException(ErrorCode.SHOW_NOT_FOUND));
-    // ShowStatus enum 변환
-    ShowStatus showStatus = ShowStatus.valueOf(status);
-    // Show 엔티티에 updateStatus 메서드 추가 필요
+    show.updateStatus(ShowStatus.valueOf(status));
     log.info("[Admin] 회차 상태 변경 showId={} status={}", showId, status);
   }
 }

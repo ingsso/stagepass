@@ -50,4 +50,8 @@ public class Show extends BaseEntity {
   public void increaseAvailableSeats(int count) {
     this.availableSeats += count;
   }
+
+  public void updateStatus(ShowStatus status) {
+    this.status = status;
+  }
 }

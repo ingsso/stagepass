@@ -17,26 +17,15 @@ public class DashboardService {
 
   @Transactional(readOnly = true)
   public DashboardResponse getDashboard() {
-    var all = reservationRepository.findAll();
-
-    long total = all.size();
-    long confirmed = all.stream()
-        .filter(r -> r.getStatus() == ReservationStatus.CONFIRMED).count();
-    long cancelled = all.stream()
-        .filter(r -> r.getStatus() == ReservationStatus.CANCELLED).count();
-    long revenue = all.stream()
-        .filter(r -> r.getStatus() == ReservationStatus.CONFIRMED)
-        .mapToLong(r -> r.getTotalPrice()).sum();
+    long total = reservationRepository.count();
+    long confirmed = reservationRepository.countByStatus(ReservationStatus.CONFIRMED);
+    long cancelled = reservationRepository.countByStatus(ReservationStatus.CANCELLED);
+    long revenue = reservationRepository.sumTotalPriceByStatus(ReservationStatus.CONFIRMED);
 
     LocalDateTime todayStart = LocalDateTime.now().toLocalDate().atStartOfDay();
-    long todayReservations = all.stream()
-        .filter(r -> r.getCreatedAt() != null && r.getCreatedAt().isAfter(todayStart))
-        .count();
-    long todayRevenue = all.stream()
-        .filter(r -> r.getStatus() == ReservationStatus.CONFIRMED
-            && r.getCreatedAt() != null
-            && r.getCreatedAt().isAfter(todayStart))
-        .mapToLong(r -> r.getTotalPrice()).sum();
+    long todayReservations = reservationRepository.countByCreatedAtAfter(todayStart);
+    long todayRevenue = reservationRepository.sumTotalPriceByStatusAndCreatedAtAfter(
+        ReservationStatus.CONFIRMED, todayStart);
 
     return new DashboardResponse(total, confirmed, cancelled, revenue,
         todayReservations, todayRevenue);
