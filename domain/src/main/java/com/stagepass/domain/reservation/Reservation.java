@@ -62,4 +62,8 @@ public class Reservation extends BaseEntity {
   public void expire() {
     this.status = ReservationStatus.EXPIRED;
   }
+
+  public void transferTo(User newOwner) {
+    this.user = newOwner;
+  }
 }

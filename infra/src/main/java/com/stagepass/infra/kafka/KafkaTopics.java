@@ -24,4 +24,7 @@ public final class KafkaTopics {
   // 대기열
   public static final String QUEUE_ENTERED = "queue.entered";
   public static final String QUEUE_ACTIVATED = "queue.activated";
+
+  // 양도
+  public static final String TRANSFER_CLAIMED = "transfer.claimed";
 }

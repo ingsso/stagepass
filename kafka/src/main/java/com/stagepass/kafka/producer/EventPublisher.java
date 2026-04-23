@@ -63,6 +63,10 @@ public class EventPublisher {
     publish(KafkaTopics.QUEUE_ACTIVATED, String.valueOf(event.getUserId()), event);
   }
 
+  public void publishTransferClaimed(TransferEvent event) {
+    publish(KafkaTopics.TRANSFER_CLAIMED, String.valueOf(event.getTransferId()), event);
+  }
+
   private void publish(String topic, String key, Object event) {
     try {
       String message = objectMapper.writeValueAsString(event);

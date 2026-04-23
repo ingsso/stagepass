@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stagepass.infra.kafka.KafkaTopics;
 import com.stagepass.kafka.event.NotificationEvent;
 import com.stagepass.kafka.event.QueueEvent;
+import com.stagepass.kafka.event.TransferEvent;
 import com.stagepass.notification.service.SseNotificationService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -29,6 +30,23 @@ public class NotificationConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 알림 처리 실패 message={}", message, e);
+    }
+  }
+
+  // 양도 완료 알림 (양도자에게)
+  @KafkaListener(topics = KafkaTopics.TRANSFER_CLAIMED, groupId = "notification-group")
+  public void handleTransferClaimed(String message, Acknowledgment ack) {
+    try {
+      TransferEvent event = objectMapper.readValue(message, TransferEvent.class);
+      log.info("[Notification] 양도 완료 fromUserId={}", event.getFromUserId());
+      sseNotificationService.sendToUser(
+          event.getFromUserId(),
+          "TRANSFER_CLAIMED",
+          "회원님의 티켓이 양도되었습니다."
+      );
+      ack.acknowledge();
+    } catch (Exception e) {
+      log.error("[Notification] 양도 알림 처리 실패 message={}", message, e);
     }
   }
 
