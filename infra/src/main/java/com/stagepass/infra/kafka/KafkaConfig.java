@@ -22,4 +22,6 @@ public class KafkaConfig {
   @Bean public NewTopic queueEntered()       { return TopicBuilder.name(KafkaTopics.QUEUE_ENTERED).partitions(3).replicas(1).build(); }
   @Bean public NewTopic queueActivated()     { return TopicBuilder.name(KafkaTopics.QUEUE_ACTIVATED).partitions(3).replicas(1).build(); }
   @Bean public NewTopic transferClaimed()    { return TopicBuilder.name(KafkaTopics.TRANSFER_CLAIMED).partitions(3).replicas(1).build(); }
+  @Bean public NewTopic waitlistNotified()   { return TopicBuilder.name(KafkaTopics.WAITLIST_NOTIFIED).partitions(3).replicas(1).build(); }
+  @Bean public NewTopic exchangeCompleted()  { return TopicBuilder.name(KafkaTopics.EXCHANGE_COMPLETED).partitions(3).replicas(1).build(); }
 }

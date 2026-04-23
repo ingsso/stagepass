@@ -67,6 +67,14 @@ public class EventPublisher {
     publish(KafkaTopics.TRANSFER_CLAIMED, String.valueOf(event.getTransferId()), event);
   }
 
+  public void publishWaitlistNotified(WaitlistEvent event) {
+    publish(KafkaTopics.WAITLIST_NOTIFIED, String.valueOf(event.getUserId()), event);
+  }
+
+  public void publishExchangeCompleted(SeatExchangeEvent event) {
+    publish(KafkaTopics.EXCHANGE_COMPLETED, String.valueOf(event.getExchangeId()), event);
+  }
+
   private void publish(String topic, String key, Object event) {
     try {
       String message = objectMapper.writeValueAsString(event);

@@ -27,4 +27,10 @@ public final class KafkaTopics {
 
   // 양도
   public static final String TRANSFER_CLAIMED = "transfer.claimed";
+
+  // 취소 대기
+  public static final String WAITLIST_NOTIFIED = "waitlist.notified";
+
+  // 자리 교환
+  public static final String EXCHANGE_COMPLETED = "exchange.completed";
 }
