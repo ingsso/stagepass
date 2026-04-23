@@ -81,7 +81,34 @@
 
 ---
 
-### 8. 알림 화면 (SSE)
+### 8. 취소 대기 화면
+
+> 매진 공연에 대기를 걸어두면 예매 취소 발생 시 순번 순서대로 SSE 알림을 받습니다.
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/api/shows/{showId}/waitlist` | 취소 대기 등록 (현재 순번 / 전체 대기 수 반환) |
+| GET | `/api/shows/{showId}/waitlist` | 내 대기 순번 / 상태 조회 |
+| DELETE | `/api/shows/{showId}/waitlist` | 대기 취소 |
+
+---
+
+### 9. 자리 교환 화면
+
+> 같은 회차 예매자끼리 좌석을 교환합니다. 수락 시 두 예매의 소유자가 원자적으로 스왑됩니다.
+
+| 메서드 | 경로 | 설명 |
+|--------|------|------|
+| POST | `/api/exchanges` | 교환 제안 (내 예매 ID + 상대 예매 ID) |
+| GET | `/api/exchanges/received` | 받은 교환 제안 목록 (PENDING) |
+| GET | `/api/exchanges/sent` | 보낸 교환 제안 목록 |
+| POST | `/api/exchanges/{exchangeId}/accept` | 교환 수락 |
+| POST | `/api/exchanges/{exchangeId}/reject` | 교환 거절 |
+| DELETE | `/api/exchanges/{exchangeId}` | 교환 제안 취소 (제안자만) |
+
+---
+
+### 10. 알림 화면 (SSE)
 
 | 메서드 | 경로 | 설명 |
 |--------|------|------|
@@ -154,4 +181,15 @@
   → api-service: Redis Sorted Set에서 상위 N명 추출
   → Kafka: queue.activated 발행
   → notification-service: 해당 유저에게 SSE 알림 전송
+
+예매 취소
+  → api-service: 예매 상태 CANCELLED, 좌석 해제
+  → WaitlistService.notifyNext(): Redis ZSet popMin → DB 상태 NOTIFIED
+  → Kafka: waitlist.notified 발행
+  → notification-service: 대기 1순위 유저에게 SSE 알림 전송 (10분 내 예매 안내)
+
+자리 교환 수락
+  → api-service: 비관적 락(작은 ID 먼저) → 두 예매 소유자 원자적 스왑
+  → Kafka: exchange.completed 발행
+  → notification-service: 제안자 + 수락자 양측에 SSE 알림 전송
 ```
