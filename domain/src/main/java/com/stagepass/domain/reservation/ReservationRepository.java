@@ -1,6 +1,8 @@
 package com.stagepass.domain.reservation;
 
+import jakarta.persistence.LockModeType;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -19,6 +21,11 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
   List<Reservation> findExpiredReservations(@Param("now") LocalDateTime now);
 
   Optional<Reservation> findByIdAndUserId(Long id, Long userId);
+
+  // 교환용 비관적 락 조회
+  @Lock(LockModeType.PESSIMISTIC_WRITE)
+  @Query("SELECT r FROM Reservation r WHERE r.id = :id")
+  Optional<Reservation> findByIdWithLock(@Param("id") Long id);
 
   // 대시보드 집계 쿼리
   long countByStatus(ReservationStatus status);
