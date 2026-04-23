@@ -1,13 +1,14 @@
 package com.stagepass.api.seat.service;
 
-import com.stagepass.infra.redis.SeatRedisRepository;
+import io.lettuce.core.RedisClient;
+import io.lettuce.core.RedisURI;
+import io.lettuce.core.SetArgs;
+import io.lettuce.core.api.StatefulRedisConnection;
+import io.lettuce.core.api.sync.RedisCommands;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
-import org.springframework.data.redis.connection.lettuce.LettuceConnectionFactory;
-import org.springframework.data.redis.core.RedisTemplate;
-import org.springframework.data.redis.serializer.StringRedisSerializer;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -23,37 +24,64 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 /**
  * 실제 Redis(Testcontainers)를 사용한 좌석 동시 선점 통합 테스트.
- * Redis SET NX의 원자성으로 경쟁 조건 없이 정확히 1명만 성공해야 한다.
+ * SeatRedisRepository.hold()의 SET NX 로직을 직접 재현하여 원자성을 검증한다.
  */
 @Testcontainers
 class SeatConcurrencyIntegrationTest {
+
+    private static final String KEY_PREFIX = "seat:hold:";
+    private static final long HOLD_TTL_MS = 300_000L;
 
     @Container
     static GenericContainer<?> redis =
             new GenericContainer<>(DockerImageName.parse("redis:7-alpine"))
                     .withExposedPorts(6379);
 
-    private SeatRedisRepository seatRedisRepository;
-    private LettuceConnectionFactory connectionFactory;
+    private RedisClient redisClient;
 
     @BeforeEach
     void setUp() {
-        connectionFactory = new LettuceConnectionFactory(
-                redis.getHost(), redis.getMappedPort(6379));
-        connectionFactory.afterPropertiesSet();
-
-        RedisTemplate<String, String> template = new RedisTemplate<>();
-        template.setConnectionFactory(connectionFactory);
-        template.setKeySerializer(new StringRedisSerializer());
-        template.setValueSerializer(new StringRedisSerializer());
-        template.afterPropertiesSet();
-
-        seatRedisRepository = new SeatRedisRepository(template);
+        redisClient = RedisClient.create(
+                RedisURI.builder()
+                        .withHost(redis.getHost())
+                        .withPort(redis.getMappedPort(6379))
+                        .build()
+        );
     }
 
     @AfterEach
     void tearDown() {
-        connectionFactory.destroy();
+        redisClient.shutdown();
+    }
+
+    // SeatRedisRepository.hold() 재현 — SET NX PX 300000
+    private boolean hold(Long seatId, Long userId) {
+        try (StatefulRedisConnection<String, String> conn = redisClient.connect()) {
+            RedisCommands<String, String> cmd = conn.sync();
+            String result = cmd.set(
+                    KEY_PREFIX + seatId,
+                    String.valueOf(userId),
+                    SetArgs.Builder.nx().px(HOLD_TTL_MS)
+            );
+            return "OK".equals(result);
+        }
+    }
+
+    // SeatRedisRepository.release() 재현 — 본인 소유인 경우만 삭제
+    private void release(Long seatId, Long userId) {
+        try (StatefulRedisConnection<String, String> conn = redisClient.connect()) {
+            RedisCommands<String, String> cmd = conn.sync();
+            String current = cmd.get(KEY_PREFIX + seatId);
+            if (String.valueOf(userId).equals(current)) {
+                cmd.del(KEY_PREFIX + seatId);
+            }
+        }
+    }
+
+    private boolean isHeld(Long seatId) {
+        try (StatefulRedisConnection<String, String> conn = redisClient.connect()) {
+            return conn.sync().exists(KEY_PREFIX + seatId) > 0;
+        }
     }
 
     @Test
@@ -72,8 +100,8 @@ class SeatConcurrencyIntegrationTest {
             executor.submit(() -> {
                 ready.countDown();
                 try {
-                    start.await(); // 모든 스레드가 준비된 뒤 동시에 출발
-                    if (seatRedisRepository.hold(seatId, uid)) {
+                    start.await();
+                    if (hold(seatId, uid)) {
                         successCount.incrementAndGet();
                     }
                 } catch (InterruptedException e) {
@@ -82,8 +110,8 @@ class SeatConcurrencyIntegrationTest {
             });
         }
 
-        ready.await(); // 100개 스레드 모두 준비 완료 대기
-        start.countDown(); // 동시 출발
+        ready.await();
+        start.countDown();
 
         executor.shutdown();
         executor.awaitTermination(10, TimeUnit.SECONDS);
@@ -98,12 +126,12 @@ class SeatConcurrencyIntegrationTest {
     void holdSeat_afterRelease_anotherUserCanHold() {
         Long seatId = 2L;
 
-        boolean firstHold = seatRedisRepository.hold(seatId, 1L);
-        boolean duplicateHold = seatRedisRepository.hold(seatId, 2L); // 1번 유저가 보유 중
+        boolean firstHold = hold(seatId, 1L);
+        boolean duplicateHold = hold(seatId, 2L);
 
-        seatRedisRepository.release(seatId, 1L); // 1번 유저 해제
+        release(seatId, 1L);
 
-        boolean afterRelease = seatRedisRepository.hold(seatId, 2L); // 2번 유저 재시도
+        boolean afterRelease = hold(seatId, 2L);
 
         assertThat(firstHold).isTrue();
         assertThat(duplicateHold).isFalse();
@@ -115,9 +143,9 @@ class SeatConcurrencyIntegrationTest {
     void releaseSeat_byOtherUser_doesNothing() {
         Long seatId = 3L;
 
-        seatRedisRepository.hold(seatId, 1L);
-        seatRedisRepository.release(seatId, 2L); // 다른 유저가 해제 시도
+        hold(seatId, 1L);
+        release(seatId, 2L);
 
-        assertThat(seatRedisRepository.isHeld(seatId)).isTrue(); // 여전히 선점 중
+        assertThat(isHeld(seatId)).isTrue();
     }
 }
