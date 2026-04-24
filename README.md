@@ -14,6 +14,9 @@
 - [Kafka 토픽 설계](#kafka-토픽-설계)
 - [결제 Saga 흐름](#결제-saga-흐름)
 - [대기열 시스템](#대기열-시스템)
+- [취소 대기 시스템](#취소-대기-시스템)
+- [자리 교환](#자리-교환)
+- [부하 테스트 결과](#부하-테스트-결과-k6)
 - [실행 방법](#실행-방법)
 
 <br>
@@ -57,6 +60,12 @@ ticket.seat.hold 이벤트 발행 → Consumer가 DB 기록
 - SSE(Server-Sent Events)로 대기 순번 실시간 전달
 - 앞 사람 결제 완료마다 `queue.activated` 이벤트 발행
 
+### 🔔 4. 취소 대기 & 자리 교환
+매진 이후에도 좌석을 얻을 수 있는 두 가지 경로를 제공합니다.
+
+- **취소 대기**: Redis Sorted Set(score = 등록 timestamp)으로 순번 관리 → 예매 취소 발생 시 1순위 대기자에게 Kafka → SSE 알림
+- **자리 교환**: 같은 회차 예매자끼리 좌석 교환 제안/수락 → JPA 비관적 락(작은 ID 먼저)으로 원자적 소유자 스왑, 데드락 방지
+
 <br>
 
 ## 기술 스택
@@ -71,7 +80,7 @@ ticket.seat.hold 이벤트 발행 → Consumer가 DB 기록
 | 실시간 통신 | SSE (Server-Sent Events) |
 | 인증 | JWT (Access 1h + Refresh 7d), BCrypt |
 | API 문서 | SpringDoc OpenAPI (Swagger UI) |
-| 테스트 | JUnit 5, Mockito |
+| 테스트 | JUnit 5, Mockito, Testcontainers |
 | 로컬 인프라 | Docker Compose |
 
 <br>
@@ -101,12 +110,12 @@ graph TB
 
     API --> PG
     API --> Redis
-    API -->|seat.hold| Kafka
+    API -->|seat.hold\nwaitlist.notified\nexchange.completed| Kafka
 
     Payment --> PG
     Payment -->|payment.completed\npayment.failed| Kafka
 
-    Notification -->|queue.activated\npayment.*| Kafka
+    Notification -->|queue.activated\npayment.*\nwaitlist.notified\nexchange.completed| Kafka
 
     Admin --> PG
     Admin --> Redis
@@ -185,7 +194,9 @@ users
         └── payments (결제)
 
 shows
-  └── queue_entries (대기열)
+  ├── queue_entries (대기열)
+  ├── waitlist_entries (취소 대기)
+  └── seat_exchanges (자리 교환 제안)
 ```
 
 주요 설계 포인트
@@ -206,8 +217,10 @@ shows
 | 좌석 선점 | Redis 원자적 선점 (SET NX), TTL 5분, 실패 시 전체 롤백 |
 | 결제 요청 | 토스페이먼츠 연동, Kafka 이벤트 발행 |
 | 예매 내역 | JOIN FETCH로 N+1 방지 |
-| 실시간 알림 | SSE — 예매 완료 / 결제 실패 / 대기열 입장 |
+| 실시간 알림 | SSE — 예매 완료 / 결제 실패 / 대기열 입장 / 취소 대기 / 교환 완료 |
 | 대기열 | Redis Sorted Set 순번 발급, 실시간 순번 안내 |
+| 취소 대기 | Redis Sorted Set 기반 순번 추적, 예매 취소 시 1순위 자동 알림 |
+| 자리 교환 | 동일 회차 예매자 간 좌석 교환 제안/수락, 비관적 락으로 원자적 스왑 |
 
 ### 관리자 API
 | 기능 | 설명 |
@@ -234,6 +247,8 @@ shows
 | `notification.send` | 각 Consumer | notification | 알림 발송 요청 |
 | `queue.entered` | api | kafka | 대기열 진입 |
 | `queue.activated` | kafka | notification | 입장 허가 |
+| `waitlist.notified` | api | notification | 취소 대기 1순위 알림 |
+| `exchange.completed` | api | notification | 자리 교환 완료 알림 (양측) |
 
 <br>
 
@@ -279,20 +294,70 @@ Redis Sorted Set
 
 <br>
 
+## 취소 대기 시스템
+
+매진 공연에서 예매 취소가 발생하면 대기자 순번 순서대로 알림을 보냅니다.
+
+```
+Redis Sorted Set
+  Key   : waitlist:{showId}
+  Score : 등록 timestamp
+  Value : userId
+
+흐름
+  1. 사용자 등록 → ZADD + DB WaitlistEntry 저장
+     → 현재 순번(ZRANK + 1) / 전체 대기 수(ZCARD) 즉시 반환
+  2. 예매 취소 발생
+     → ZPOPMIN으로 1순위 userId 추출
+     → DB 상태 NOTIFIED 업데이트 (10분 예매 유효)
+     → waitlist.notified 발행 → SSE 알림 전송
+  3. 대기 취소 → ZREM + DB 상태 CANCELLED
+```
+
+- 이탈 시 순번 자동 재계산 (ZSet 특성 활용)
+- DB는 이력 보존용, 실시간 순번은 Redis가 단독 처리
+
+<br>
+
+## 자리 교환
+
+같은 회차 예매자끼리 좌석을 교환합니다.
+
+```
+흐름
+  1. 제안자 → POST /api/exchanges (내 예매 ID + 상대 예매 ID)
+     - 유효성 검증: 같은 회차 여부, 두 예매 모두 CONFIRMED 상태
+     - 중복 제안 방지: PENDING 상태 교환 이미 존재 시 거절
+  2. 수락자 → POST /api/exchanges/{id}/accept
+     - 비관적 락 획득 (데드락 방지: 작은 ID 먼저 락)
+     - 두 예매의 user 원자적 스왑
+     - exchange.completed 발행 → 양측 SSE 알림
+  3. 거절/취소 → 상태만 변경 (REJECTED / CANCELLED)
+```
+
+**데드락 방지 설계**
+```
+A가 res1 → res2 순으로 락, B가 res2 → res1 순으로 락 시도 → 교착
+해결: 항상 MIN(id) 먼저 락 → 모든 트랜잭션이 동일한 순서로 락 획득
+```
+
+<br>
+
 ## 부하 테스트 결과 (k6)
 
 로컬 환경(MacBook M2, Docker)에서 k6로 측정한 결과입니다.
+임계값(p95 500ms, 에러율 1%)을 코드로 정의하고 이를 초과하면 테스트가 자동 실패하도록 구성했습니다.
 
 ### 처리량 테스트 — 좌석 목록 조회 API
 
-| 항목 | 결과 |
-|------|------|
-| 최대 RPS | **103 req/s** (목표 200 RPS 단계 중) |
-| p95 응답시간 | **10ms** |
-| 에러율 | **0.01%** 미만 |
-| 총 요청 수 | 12,949건 |
+| 항목 | 최적화 전 | 최적화 후 |
+|------|-----------|-----------|
+| p95 응답시간 | 임계값 초과 | **10ms** |
+| 에러율 | - | **0.01%** 미만 |
+| 총 요청 수 | - | 12,949건 |
 
-> Redis `@Cacheable` (TTL 10s) 적용 후 DB 부하 없이 p95 10ms 달성
+**병목 원인**: 좌석마다 구역 정보를 별도 조회하는 N+1 쿼리  
+**해결**: JOIN 쿼리 통합 + Redis `@Cacheable` (TTL 10s) 적용
 
 ### 동시 선점 테스트 — Redis SET NX 원자성 검증
 
@@ -381,4 +446,4 @@ cp payment/src/main/resources/application-local.yaml.example payment/src/main/re
 - `SeatServiceTest` — 좌석 선점 성공/실패/롤백 (4개)
 - `PaymentServiceTest` — 결제 성공/실패/멱등성 (3개)
 - `QueueServiceTest` — 대기열 진입/순번/입장 허가 (12개)
-- `SeatConcurrencyIntegrationTest` — **실제 Redis(Testcontainers)** 동시 선점 원자성 검증 (3개)
+- `SeatConcurrencyIntegrationTest` — **실제 Redis(Testcontainers)** 동시 선점 원자성 검증 (3개, Docker 없는 환경 자동 skip)
