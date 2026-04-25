@@ -30,6 +30,7 @@ public class SeatEventConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Kafka] 좌석 선점 만료 처리 실패 message={}", message, e);
+      ack.acknowledge(); // 부가 기능 — 손실 허용하고 offset 커밋
     }
   }
 
@@ -43,6 +44,7 @@ public class SeatEventConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Kafka] 결제 실패 좌석 해제 처리 실패 message={}", message, e);
+      ack.acknowledge();
     }
   }
 
@@ -55,6 +57,7 @@ public class SeatEventConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Kafka] 결제 완료 좌석 확정 처리 실패 message={}", message, e);
+      ack.acknowledge();
     }
   }
 }

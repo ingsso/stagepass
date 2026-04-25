@@ -33,6 +33,7 @@ public class QueueEventConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Kafka] 대기열 입장 처리 실패 message={}", message, e);
+      ack.acknowledge(); // 부가 기능 — 손실 허용하고 offset 커밋
     }
   }
 }

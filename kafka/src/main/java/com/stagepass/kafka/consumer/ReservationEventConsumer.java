@@ -54,6 +54,7 @@ public class ReservationEventConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Kafka] 예매 확정 처리 실패 message={}", message, e);
+      throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
 
@@ -79,6 +80,7 @@ public class ReservationEventConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Kafka] 보상 트랜잭션 실패 message={}", message, e);
+      throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
 }

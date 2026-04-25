@@ -61,7 +61,8 @@
       "Bash(./gradlew :api:test)",
       "Bash(./gradlew :api:test --tests \"com.stagepass.api.payment.service.ApiPaymentServiceTest\")",
       "Bash(xargs cat *)",
-      "Bash(./gradlew :api:test --tests \"com.stagepass.api.reservation.service.ReservationServiceTest\")"
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.reservation.service.ReservationServiceTest\")",
+      "Bash(./gradlew :infra:compileJava :kafka:compileJava :api:compileJava :payment:compileJava :notification:compileJava)"
     ]
   }
 }

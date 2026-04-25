@@ -47,6 +47,7 @@ public class PaymentService {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Saga] 결제 요청 처리 실패 message={}", message, e);
+      throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
 
@@ -116,6 +117,7 @@ public class PaymentService {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Saga] 환불 처리 실패 message={}", message, e);
+      throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
 

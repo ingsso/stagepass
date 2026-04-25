@@ -37,6 +37,7 @@ public class PaymentFailureConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Waitlist] 결제 실패 대기열 알림 처리 실패 message={}", message, e);
+      throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
 }
