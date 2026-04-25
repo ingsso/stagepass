@@ -64,7 +64,8 @@
       "Bash(./gradlew :api:test --tests \"com.stagepass.api.reservation.service.ReservationServiceTest\")",
       "Bash(./gradlew :infra:compileJava :kafka:compileJava :api:compileJava :payment:compileJava :notification:compileJava)",
       "Bash(./gradlew :infra:compileJava)",
-      "Bash(./gradlew :api:test --tests \"com.stagepass.api.seat.service.SeatConcurrencyIntegrationTest\")"
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.seat.service.SeatConcurrencyIntegrationTest\")",
+      "Bash(./gradlew :api:compileJava)"
     ]
   }
 }

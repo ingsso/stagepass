@@ -1,11 +1,16 @@
 package com.stagepass.api.exchange.dto;
 
+import jakarta.validation.constraints.NotNull;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 @Getter
 @NoArgsConstructor
 public class ExchangeRequest {
-  private Long myReservationId;       // 내가 내놓을 예매
-  private Long targetReservationId;   // 상대방의 예매
+
+  @NotNull(message = "내 예매 ID는 필수입니다.")
+  private Long myReservationId;
+
+  @NotNull(message = "상대방 예매 ID는 필수입니다.")
+  private Long targetReservationId;
 }

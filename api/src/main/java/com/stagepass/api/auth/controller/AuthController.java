@@ -1,13 +1,22 @@
 package com.stagepass.api.auth.controller;
 
+import jakarta.validation.Valid;
 import com.stagepass.api.auth.dto.*;
+import jakarta.validation.Valid;
 import com.stagepass.api.auth.service.AuthService;
+import jakarta.validation.Valid;
 import com.stagepass.common.response.ApiResponse;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "인증", description = "회원가입, 로그인, 토큰 재발급, 로그아웃 API")
@@ -20,14 +29,14 @@ public class AuthController {
 
   @Operation(summary = "회원가입", description = "이메일과 비밀번호로 신규 회원을 등록합니다.")
   @PostMapping("/signup")
-  public ResponseEntity<ApiResponse<Void>> signUp(@RequestBody SignUpRequest request) {
+  public ResponseEntity<ApiResponse<Void>> signUp(@Valid @RequestBody SignUpRequest request) {
     authService.signUp(request);
     return ResponseEntity.ok(ApiResponse.ok());
   }
 
   @Operation(summary = "로그인", description = "이메일과 비밀번호로 로그인하여 JWT 액세스/리프레시 토큰을 발급받습니다.")
   @PostMapping("/login")
-  public ResponseEntity<ApiResponse<TokenResponse>> login(@RequestBody LoginRequest request) {
+  public ResponseEntity<ApiResponse<TokenResponse>> login(@Valid @RequestBody LoginRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(authService.login(request)));
   }
 
