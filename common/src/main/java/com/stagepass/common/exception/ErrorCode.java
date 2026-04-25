@@ -28,6 +28,7 @@ public enum ErrorCode {
   // 예매 / 결제
   RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "예매 정보를 찾을 수 없습니다."),
   RESERVATION_NOT_CONFIRMED(HttpStatus.BAD_REQUEST, "확정된 예매만 양도할 수 있습니다."),
+  RESERVATION_STATUS_INVALID(HttpStatus.BAD_REQUEST, "현재 상태에서 허용되지 않는 예매 상태 전환입니다."),
   PAYMENT_FAILED(HttpStatus.BAD_REQUEST, "결제에 실패했습니다."),
   DUPLICATE_PAYMENT(HttpStatus.CONFLICT, "이미 처리된 결제입니다."),
 

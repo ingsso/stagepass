@@ -1,5 +1,6 @@
 package com.stagepass.api.queue.service;
 
+import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationSeatRepository;
@@ -24,6 +25,7 @@ public class ReservationExpiryScheduler {
   private final ReservationSeatRepository reservationSeatRepository;
   private final SeatRedisRepository seatRedisRepository;
   private final EventPublisher eventPublisher;
+  private final WaitlistService waitlistService;
 
   // 1분마다 만료된 PENDING 예매 정리
   @Scheduled(fixedDelay = 60_000)
@@ -54,6 +56,9 @@ public class ReservationExpiryScheduler {
           });
 
       log.info("[Scheduler] 예매 만료 처리 reservationId={}", reservation.getId());
+
+      // 선점이 풀린 좌석이 있으므로 취소 대기 첫 번째 대기자에게 알림
+      waitlistService.notifyNext(reservation.getShow().getId());
     }
   }
 }

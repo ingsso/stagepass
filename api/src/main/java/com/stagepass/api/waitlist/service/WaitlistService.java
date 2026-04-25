@@ -16,6 +16,7 @@ import com.stagepass.kafka.producer.EventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -79,16 +80,22 @@ public class WaitlistService {
     log.info("[Waitlist] 취소 대기 이탈 showId={} userId={}", showId, userId);
   }
 
-  // 예매 취소 발생 시 첫 번째 대기자에게 알림 (ReservationService에서 호출)
-  @Transactional
+  // 예매 취소/만료 발생 시 첫 번째 대기자에게 알림
+  // REQUIRES_NEW: 호출자 트랜잭션과 분리 → 알림 실패가 예매 취소를 롤백시키지 않음
+  @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void notifyNext(Long showId) {
     Long nextUserId = waitlistRedisRepository.popFirst(showId);
     if (nextUserId == null) return;
 
-    waitlistRepository.findByShowIdAndUserId(showId, nextUserId)
-        .ifPresent(entry -> entry.notify(LocalDateTime.now()));
-
-    eventPublisher.publishWaitlistNotified(new WaitlistEvent(showId, nextUserId));
-    log.info("[Waitlist] 대기자 알림 showId={} userId={}", showId, nextUserId);
+    try {
+      waitlistRepository.findByShowIdAndUserId(showId, nextUserId)
+          .ifPresent(entry -> entry.notify(LocalDateTime.now()));
+      eventPublisher.publishWaitlistNotified(new WaitlistEvent(showId, nextUserId));
+      log.info("[Waitlist] 대기자 알림 showId={} userId={}", showId, nextUserId);
+    } catch (Exception e) {
+      // DB 업데이트 실패 시 Redis에서 꺼낸 userId를 다시 넣어 대기 순번 복구
+      waitlistRedisRepository.add(showId, nextUserId);
+      log.error("[Waitlist] 대기자 알림 실패, Redis 복구 showId={} userId={}", showId, nextUserId, e);
+    }
   }
 }

@@ -1,5 +1,7 @@
 package com.stagepass.domain.reservation;
 
+import com.stagepass.common.exception.BusinessException;
+import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.common.BaseEntity;
 import com.stagepass.domain.performance.Show;
 import com.stagepass.domain.user.User;
@@ -52,14 +54,23 @@ public class Reservation extends BaseEntity {
   }
 
   public void confirm() {
+    if (this.status != ReservationStatus.PENDING) {
+      throw new BusinessException(ErrorCode.RESERVATION_STATUS_INVALID);
+    }
     this.status = ReservationStatus.CONFIRMED;
   }
 
   public void cancel() {
+    if (this.status == ReservationStatus.CANCELLED || this.status == ReservationStatus.EXPIRED) {
+      throw new BusinessException(ErrorCode.RESERVATION_STATUS_INVALID);
+    }
     this.status = ReservationStatus.CANCELLED;
   }
 
   public void expire() {
+    if (this.status != ReservationStatus.PENDING) {
+      return; // 이미 확정/취소/만료된 경우 멱등 처리
+    }
     this.status = ReservationStatus.EXPIRED;
   }
 
