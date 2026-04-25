@@ -20,6 +20,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.stagepass.kafka.event.PaymentCancelEvent;
 import com.stagepass.kafka.event.PaymentRequestedEvent;
 
 @Slf4j
@@ -102,6 +103,19 @@ public class PaymentService {
           )
       );
       log.error("[Saga] 결제 실패 reservationId={} reason={}", event.getReservationId(), e.getMessage());
+    }
+  }
+
+  // payment.cancel.requested Consumer — 예매 취소 환불 처리
+  @KafkaListener(topics = KafkaTopics.PAYMENT_CANCEL_REQUESTED, groupId = "payment-cancel-group")
+  public void handlePaymentCancelRequested(String message, Acknowledgment ack) {
+    try {
+      PaymentCancelEvent event = objectMapper.readValue(message, PaymentCancelEvent.class);
+      log.info("[Saga] 환불 요청 수신 reservationId={}", event.getReservationId());
+      cancelPayment(event.getReservationId());
+      ack.acknowledge();
+    } catch (Exception e) {
+      log.error("[Saga] 환불 처리 실패 message={}", message, e);
     }
   }
 
