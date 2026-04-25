@@ -27,16 +27,18 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
   @Query("SELECT r FROM Reservation r WHERE r.id = :id")
   Optional<Reservation> findByIdWithLock(@Param("id") Long id);
 
-  // 대시보드 집계 쿼리
-  long countByStatus(ReservationStatus status);
-
-  @Query("SELECT COALESCE(SUM(r.totalPrice), 0) FROM Reservation r WHERE r.status = :status")
-  long sumTotalPriceByStatus(@Param("status") ReservationStatus status);
-
-  @Query("SELECT COUNT(r) FROM Reservation r WHERE r.createdAt >= :from")
-  long countByCreatedAtAfter(@Param("from") LocalDateTime from);
-
-  @Query("SELECT COALESCE(SUM(r.totalPrice), 0) FROM Reservation r WHERE r.status = :status AND r.createdAt >= :from")
-  long sumTotalPriceByStatusAndCreatedAtAfter(@Param("status") ReservationStatus status,
-                                              @Param("from") LocalDateTime from);
+  // 대시보드 단일 집계 쿼리 — 6회 → 1회 (Object[]: total, confirmed, cancelled, revenue, todayCount, todayRevenue)
+  @Query("""
+      SELECT
+        COUNT(r),
+        SUM(CASE WHEN r.status = :confirmed THEN 1 ELSE 0 END),
+        SUM(CASE WHEN r.status = :cancelled THEN 1 ELSE 0 END),
+        COALESCE(SUM(CASE WHEN r.status = :confirmed THEN r.totalPrice ELSE 0 END), 0),
+        SUM(CASE WHEN r.createdAt >= :todayStart THEN 1 ELSE 0 END),
+        COALESCE(SUM(CASE WHEN r.status = :confirmed AND r.createdAt >= :todayStart THEN r.totalPrice ELSE 0 END), 0)
+      FROM Reservation r
+      """)
+  Object[] getDashboardStats(@Param("confirmed") ReservationStatus confirmed,
+                             @Param("cancelled") ReservationStatus cancelled,
+                             @Param("todayStart") LocalDateTime todayStart);
 }

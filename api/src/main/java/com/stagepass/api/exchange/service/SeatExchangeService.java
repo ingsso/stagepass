@@ -83,18 +83,18 @@ public class SeatExchangeService {
   // 내가 받은 교환 제안 목록
   @Transactional(readOnly = true)
   public List<ExchangeResponse> getReceivedProposals(Long userId) {
-    return exchangeRepository.findByReceiverIdAndStatus(userId, SeatExchangeStatus.PENDING)
+    return exchangeRepository.findByReceiverIdAndStatusWithDetails(userId, SeatExchangeStatus.PENDING)
         .stream()
-        .map(e -> new ExchangeResponse(exchangeRepository.findByIdWithDetails(e.getId()).orElseThrow()))
+        .map(ExchangeResponse::new)
         .toList();
   }
 
   // 내가 보낸 교환 제안 목록
   @Transactional(readOnly = true)
   public List<ExchangeResponse> getSentProposals(Long userId) {
-    return exchangeRepository.findByProposerIdOrderByCreatedAtDesc(userId)
+    return exchangeRepository.findByProposerIdWithDetails(userId)
         .stream()
-        .map(e -> new ExchangeResponse(exchangeRepository.findByIdWithDetails(e.getId()).orElseThrow()))
+        .map(ExchangeResponse::new)
         .toList();
   }
 

@@ -15,6 +15,8 @@ import com.stagepass.kafka.event.SeatHoldEvent;
 import com.stagepass.kafka.producer.EventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
@@ -36,6 +38,7 @@ public class SeatService {
   private final UserRepository userRepository;
   private final SeatRedisRepository seatRedisRepository;
   private final EventPublisher eventPublisher;
+  private final CacheManager cacheManager;
 
   // 회차별 좌석 목록 조회 — N+1 제거(JOIN FETCH) + Redis 캐싱(TTL 10s)
   @Cacheable(value = "seat-list", key = "#showId")
@@ -118,8 +121,7 @@ public class SeatService {
     return new SeatHoldResponse(heldIds, failedIds, reservation.getId(), expiresAt);
   }
 
-  // 선점 해제 + 캐시 무효화
-  @CacheEvict(value = "seat-list", allEntries = true)
+  // 선점 해제 + 해당 showId 캐시만 무효화 (allEntries 방지)
   @Transactional
   public void releaseSeats(Long reservationId, Long userId) {
     Reservation reservation = reservationRepository.findByIdAndUserId(reservationId, userId)
@@ -128,7 +130,12 @@ public class SeatService {
     reservationSeatRepository.findByReservationId(reservationId)
         .forEach(rs -> seatRedisRepository.release(rs.getSeat().getId(), userId));
 
+    Long showId = reservation.getShow().getId();
     reservation.expire();
+
+    Cache seatListCache = cacheManager.getCache("seat-list");
+    if (seatListCache != null) seatListCache.evict(showId);
+
     log.info("[Seat] 선점 해제 reservationId={} userId={}", reservationId, userId);
   }
 }

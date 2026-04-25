@@ -17,17 +17,22 @@ public class DashboardService {
 
   @Transactional(readOnly = true)
   public DashboardResponse getDashboard() {
-    long total = reservationRepository.count();
-    long confirmed = reservationRepository.countByStatus(ReservationStatus.CONFIRMED);
-    long cancelled = reservationRepository.countByStatus(ReservationStatus.CANCELLED);
-    long revenue = reservationRepository.sumTotalPriceByStatus(ReservationStatus.CONFIRMED);
-
     LocalDateTime todayStart = LocalDateTime.now().toLocalDate().atStartOfDay();
-    long todayReservations = reservationRepository.countByCreatedAtAfter(todayStart);
-    long todayRevenue = reservationRepository.sumTotalPriceByStatusAndCreatedAtAfter(
-        ReservationStatus.CONFIRMED, todayStart);
+    Object[] s = reservationRepository.getDashboardStats(
+        ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED, todayStart);
 
-    return new DashboardResponse(total, confirmed, cancelled, revenue,
-        todayReservations, todayRevenue);
+    return new DashboardResponse(
+        toLong(s[0]),  // total
+        toLong(s[1]),  // confirmed
+        toLong(s[2]),  // cancelled
+        toLong(s[3]),  // revenue
+        toLong(s[4]),  // todayCount
+        toLong(s[5])   // todayRevenue
+    );
+  }
+
+  private long toLong(Object value) {
+    if (value == null) return 0L;
+    return ((Number) value).longValue();
   }
 }
