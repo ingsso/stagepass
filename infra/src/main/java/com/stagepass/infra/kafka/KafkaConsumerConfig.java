@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -43,6 +45,8 @@ public class KafkaConsumerConfig {
     factory.getContainerProperties().setAckMode(
         org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL
     );
+    // 1초 간격 3회 재시도 후 에러 로그 기록하고 offset 커밋 (무한 재시도 방지)
+    factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1_000L, 3)));
     return factory;
   }
 }

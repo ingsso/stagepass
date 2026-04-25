@@ -13,6 +13,7 @@ public final class KafkaTopics {
   public static final String PAYMENT_REQUESTED = "payment.requested";
   public static final String PAYMENT_COMPLETED = "payment.completed";
   public static final String PAYMENT_FAILED = "payment.failed";
+  public static final String PAYMENT_CANCEL_REQUESTED = "payment.cancel.requested";
 
   // 예매
   public static final String RESERVATION_CONFIRMED = "reservation.confirmed";

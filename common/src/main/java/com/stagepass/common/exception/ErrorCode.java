@@ -31,6 +31,7 @@ public enum ErrorCode {
   RESERVATION_STATUS_INVALID(HttpStatus.BAD_REQUEST, "현재 상태에서 허용되지 않는 예매 상태 전환입니다."),
   PAYMENT_FAILED(HttpStatus.BAD_REQUEST, "결제에 실패했습니다."),
   DUPLICATE_PAYMENT(HttpStatus.CONFLICT, "이미 처리된 결제입니다."),
+  PAYMENT_AMOUNT_MISMATCH(HttpStatus.BAD_REQUEST, "결제 금액이 예매 금액과 일치하지 않습니다."),
 
   // 양도
   TRANSFER_NOT_FOUND(HttpStatus.NOT_FOUND, "양도 게시글을 찾을 수 없습니다."),

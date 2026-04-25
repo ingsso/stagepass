@@ -67,14 +67,26 @@ class SeatConcurrencyIntegrationTest {
         }
     }
 
-    // SeatRedisRepository.release() 재현 — 본인 소유인 경우만 삭제
+    // SeatRedisRepository.release() 재현 — Lua 스크립트로 GET+DEL 원자적 실행
     private void release(Long seatId, Long userId) {
         try (StatefulRedisConnection<String, String> conn = redisClient.connect()) {
             RedisCommands<String, String> cmd = conn.sync();
-            String current = cmd.get(KEY_PREFIX + seatId);
-            if (String.valueOf(userId).equals(current)) {
-                cmd.del(KEY_PREFIX + seatId);
-            }
+            String script = "if redis.call('get',KEYS[1])==ARGV[1] then return redis.call('del',KEYS[1]) else return 0 end";
+            cmd.eval(script, io.lettuce.core.ScriptOutputType.INTEGER,
+                    new String[]{KEY_PREFIX + seatId}, String.valueOf(userId));
+        }
+    }
+
+    // 테스트 보조: Redis 키에 직접 값 설정 (race condition 시뮬레이션용)
+    private void forceSet(Long seatId, Long userId) {
+        try (StatefulRedisConnection<String, String> conn = redisClient.connect()) {
+            conn.sync().set(KEY_PREFIX + seatId, String.valueOf(userId));
+        }
+    }
+
+    private String getHolder(Long seatId) {
+        try (StatefulRedisConnection<String, String> conn = redisClient.connect()) {
+            return conn.sync().get(KEY_PREFIX + seatId);
         }
     }
 
@@ -147,5 +159,26 @@ class SeatConcurrencyIntegrationTest {
         release(seatId, 2L);
 
         assertThat(isHeld(seatId)).isTrue();
+    }
+
+    @Test
+    @DisplayName("Lua 원자성 — user1이 해제하는 사이 user2가 선점해도 user2의 락이 보존된다")
+    void releaseSeat_atomicLua_preservesNewHolderLock() {
+        Long seatId = 4L;
+
+        // user1 선점
+        hold(seatId, 1L);
+
+        // race condition 시뮬레이션: user1 해제 직전 user2가 강제로 선점
+        // (실제 환경에서는 user1의 TTL 만료 후 user2가 hold하는 상황)
+        forceSet(seatId, 2L);
+
+        // user1이 자신의 락을 해제 시도 → Lua: 현재 holder가 user2이므로 삭제하지 않음
+        release(seatId, 1L);
+
+        // user2의 락은 그대로 보존되어야 한다
+        assertThat(getHolder(seatId))
+                .as("Lua 원자적 삭제: 다른 유저의 락을 침범하지 않아야 한다")
+                .isEqualTo("2");
     }
 }

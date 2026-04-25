@@ -42,7 +42,30 @@
       "Bash(npm -v)",
       "Bash(k6 version:*)",
       "Bash(./gradlew :api:build :admin:build :payment:build -x test)",
-      "Bash(./gradlew :api:build :admin:build :payment:build :notification:build -x test)"
+      "Bash(./gradlew :api:build :admin:build :payment:build :notification:build -x test)",
+      "Bash(gh repo *)",
+      "Bash(python3 -c \" import json,sys d=json.load\\(sys.stdin\\) m=d.get\\('metrics',{}\\) rps=m.get\\('http_reqs',{}\\).get\\('values',{}\\).get\\('rate',0\\) p95=m.get\\('http_req_duration',{}\\).get\\('values',{}\\).get\\('p\\(95\\)',0\\) p99=m.get\\('http_req_duration',{}\\).get\\('values',{}\\).get\\('p\\(99\\)',0\\) err=m.get\\('api_error_rate',{}\\).get\\('values',{}\\).get\\('rate',0\\) total=m.get\\('http_reqs',{}\\).get\\('values',{}\\).get\\('count',0\\) print\\(f'총요청:{total:.0f} RPS:{rps:.1f} p95:{p95:.0f}ms p99:{p99:.0f}ms 에러:{err*100:.2f}%'\\) \")",
+      "Bash(python3 -c \" import json,sys d=json.load\\(sys.stdin\\) m=d.get\\('metrics',{}\\) success=m.get\\('seat_hold_success',{}\\).get\\('values',{}\\).get\\('count',0\\) conflict=m.get\\('seat_hold_conflict',{}\\).get\\('values',{}\\).get\\('count',0\\) p95=m.get\\('http_req_duration',{}\\).get\\('values',{}\\).get\\('p\\(95\\)',0\\) print\\(f'선점성공:{success:.0f}명 충돌:{conflict:.0f}명 p95:{p95:.0f}ms'\\) \")",
+      "Bash(./gradlew :domain:compileJava :infra:compileJava :kafka:compileJava :api:compileJava :notification:compileJava -x test)",
+      "Bash(./gradlew :api:compileJava -x test)",
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; cat {}')",
+      "Bash(./gradlew test *)",
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.*\" -x :api:test --tests \"com.stagepass.api.seat.SeatConcurrencyIntegrationTest\")",
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.queue.service.QueueServiceTest\" --tests \"com.stagepass.api.seat.service.SeatServiceTest\")",
+      "Bash(./gradlew :common:compileJava :domain:compileJava :api:compileJava)",
+      "Bash(./gradlew :common:compileJava :domain:compileJava :api:compileJava :admin:compileJava)",
+      "Bash(./gradlew :api:compileJava :notification:compileJava :payment:compileJava :domain:compileJava)",
+      "Bash(./gradlew :api:compileTestJava)",
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.exchange.service.SeatExchangeServiceTest.교환_제안*\")",
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.exchange.service.SeatExchangeServiceTest\")",
+      "Bash(./gradlew :api:test)",
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.payment.service.ApiPaymentServiceTest\")",
+      "Bash(xargs cat *)",
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.reservation.service.ReservationServiceTest\")",
+      "Bash(./gradlew :infra:compileJava :kafka:compileJava :api:compileJava :payment:compileJava :notification:compileJava)",
+      "Bash(./gradlew :infra:compileJava)",
+      "Bash(./gradlew :api:test --tests \"com.stagepass.api.seat.service.SeatConcurrencyIntegrationTest\")",
+      "Bash(./gradlew :api:compileJava)"
     ]
   }
 }

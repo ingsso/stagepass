@@ -32,6 +32,7 @@ public class NotificationConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 알림 처리 실패 message={}", message, e);
+      ack.acknowledge(); // 실시간 알림 — 재전송 무의미, offset 커밋
     }
   }
 
@@ -49,6 +50,7 @@ public class NotificationConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 양도 알림 처리 실패 message={}", message, e);
+      ack.acknowledge();
     }
   }
 
@@ -66,6 +68,7 @@ public class NotificationConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 취소 대기 알림 처리 실패 message={}", message, e);
+      ack.acknowledge();
     }
   }
 
@@ -83,6 +86,7 @@ public class NotificationConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 교환 완료 알림 처리 실패 message={}", message, e);
+      ack.acknowledge();
     }
   }
 
@@ -100,6 +104,7 @@ public class NotificationConsumer {
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 대기열 알림 처리 실패 message={}", message, e);
+      ack.acknowledge();
     }
   }
 }

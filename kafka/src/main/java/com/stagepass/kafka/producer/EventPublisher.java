@@ -75,6 +75,10 @@ public class EventPublisher {
     publish(KafkaTopics.EXCHANGE_COMPLETED, String.valueOf(event.getExchangeId()), event);
   }
 
+  public void publishPaymentCancelRequested(PaymentCancelEvent event) {
+    publish(KafkaTopics.PAYMENT_CANCEL_REQUESTED, String.valueOf(event.getReservationId()), event);
+  }
+
   private void publish(String topic, String key, Object event) {
     try {
       String message = objectMapper.writeValueAsString(event);

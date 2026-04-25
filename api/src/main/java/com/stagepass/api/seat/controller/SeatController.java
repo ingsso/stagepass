@@ -1,16 +1,27 @@
 package com.stagepass.api.seat.controller;
 
+import jakarta.validation.Valid;
 import com.stagepass.api.seat.dto.*;
+import jakarta.validation.Valid;
 import com.stagepass.api.seat.service.SeatService;
+import jakarta.validation.Valid;
 import com.stagepass.common.response.ApiResponse;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Parameter;
+import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "좌석", description = "좌석 조회 및 좌석 점유 API")
@@ -33,7 +44,7 @@ public class SeatController {
   public ResponseEntity<ApiResponse<SeatHoldResponse>> holdSeats(
       @Parameter(description = "회차 ID") @PathVariable Long showId,
       @AuthenticationPrincipal Long userId,
-      @RequestBody SeatHoldRequest request) {
+      @Valid @RequestBody SeatHoldRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(seatService.holdSeats(showId, userId, request)));
   }
 
