@@ -7,6 +7,7 @@ import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.exchange.SeatExchange;
 import com.stagepass.domain.exchange.SeatExchangeRepository;
 import com.stagepass.domain.exchange.SeatExchangeStatus;
+import static com.stagepass.domain.exchange.SeatExchangeStatus.*;
 import com.stagepass.domain.performance.Performance;
 import com.stagepass.domain.performance.Show;
 import com.stagepass.domain.performance.ShowStatus;
@@ -201,5 +202,49 @@ class SeatExchangeServiceTest {
     assertThatThrownBy(() -> exchangeService.reject(1L, PROPOSER_ID))
         .isInstanceOf(BusinessException.class)
         .hasMessageContaining(ErrorCode.EXCHANGE_FORBIDDEN.getMessage());
+  }
+
+  @Test
+  @DisplayName("도메인 가드 — REJECTED 상태에서 accept() 호출 시 EXCHANGE_NOT_PENDING 예외")
+  void domain_이미거절된교환_accept_실패() {
+    SeatExchange exchange = SeatExchange.builder()
+        .proposer(proposer).receiver(receiver)
+        .proposerReservation(myReservation).receiverReservation(targetReservation)
+        .build();
+    exchange.reject(); // REJECTED 상태로 전환
+
+    assertThatThrownBy(exchange::accept)
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining(ErrorCode.EXCHANGE_NOT_PENDING.getMessage());
+  }
+
+  @Test
+  @DisplayName("도메인 가드 — ACCEPTED 상태에서 cancel() 호출 시 EXCHANGE_NOT_PENDING 예외")
+  void domain_이미수락된교환_cancel_실패() {
+    SeatExchange exchange = SeatExchange.builder()
+        .proposer(proposer).receiver(receiver)
+        .proposerReservation(myReservation).receiverReservation(targetReservation)
+        .build();
+    // accept()는 PENDING 상태에서만 호출 가능 — 직접 상태 설정으로 시뮬레이션
+    ReflectionTestUtils.setField(exchange, "status", SeatExchangeStatus.ACCEPTED);
+
+    assertThatThrownBy(exchange::cancel)
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining(ErrorCode.EXCHANGE_NOT_PENDING.getMessage());
+  }
+
+  @Test
+  @DisplayName("도메인 가드 — expire()는 PENDING이 아닌 상태에서 멱등 처리된다")
+  void domain_이미완료된교환_expire_멱등() {
+    SeatExchange exchange = SeatExchange.builder()
+        .proposer(proposer).receiver(receiver)
+        .proposerReservation(myReservation).receiverReservation(targetReservation)
+        .build();
+    exchange.reject(); // REJECTED 상태
+
+    // 예외 없이 무시되어야 한다
+    exchange.expire();
+
+    assertThat(exchange.getStatus()).isEqualTo(SeatExchangeStatus.REJECTED);
   }
 }
