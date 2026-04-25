@@ -54,4 +54,8 @@ public class Transfer extends BaseEntity {
   public void cancel() {
     this.status = TransferStatus.CANCELLED;
   }
+
+  public void expire() {
+    this.status = TransferStatus.EXPIRED;
+  }
 }

@@ -92,7 +92,7 @@ public class PaymentService {
 
     } catch (Exception e) {
       // 5. 실패 → payment.failed 발행 (보상 트랜잭션 트리거)
-      payment.fail();
+      payment.fail(e.getMessage());
       eventPublisher.publishPaymentFailed(
           new PaymentResultEvent(
               event.getReservationId(),

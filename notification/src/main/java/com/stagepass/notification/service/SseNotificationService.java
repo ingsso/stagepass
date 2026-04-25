@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.util.List;
 
 @Slf4j
 @Service
@@ -16,17 +17,17 @@ public class SseNotificationService {
 
   private final SseEmitterRepository emitterRepository;
 
-  // SSE 구독 — 클라이언트가 연결 시 호출
+  // SSE 구독 — 클라이언트가 연결 시 호출 (탭/기기별 복수 연결 허용)
   public SseEmitter subscribe(Long userId) {
     SseEmitter emitter = new SseEmitter(SSE_TIMEOUT);
 
-    emitter.onCompletion(() -> emitterRepository.delete(userId));
+    emitter.onCompletion(() -> emitterRepository.delete(userId, emitter));
     emitter.onTimeout(() -> {
-      emitterRepository.delete(userId);
+      emitterRepository.delete(userId, emitter);
       log.debug("[SSE] 타임아웃 userId={}", userId);
     });
     emitter.onError(e -> {
-      emitterRepository.delete(userId);
+      emitterRepository.delete(userId, emitter);
       log.debug("[SSE] 에러 userId={} error={}", userId, e.getMessage());
     });
 
@@ -38,19 +39,18 @@ public class SseNotificationService {
     return emitter;
   }
 
-  // 특정 유저에게 알림 발송
+  // 특정 유저의 모든 연결에 알림 발송
   public void sendToUser(Long userId, String type, String message) {
-    emitterRepository.findByUserId(userId).ifPresent(emitter -> {
+    List<SseEmitter> targets = emitterRepository.findAllByUserId(userId);
+    for (SseEmitter emitter : targets) {
       try {
-        emitter.send(SseEmitter.event()
-            .name(type)
-            .data(message));
+        emitter.send(SseEmitter.event().name(type).data(message));
         log.debug("[SSE] 발송 완료 userId={} type={}", userId, type);
       } catch (IOException e) {
         log.warn("[SSE] 발송 실패 userId={} type={} — 연결 제거", userId, type);
-        emitterRepository.delete(userId);
+        emitterRepository.delete(userId, emitter);
         emitter.completeWithError(e);
       }
-    });
+    }
   }
 }
