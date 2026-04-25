@@ -1,6 +1,9 @@
 package com.stagepass.api.queue.service;
 
 import com.stagepass.api.waitlist.service.WaitlistService;
+import com.stagepass.domain.queue.QueueEntry;
+import com.stagepass.domain.queue.QueueEntryRepository;
+import com.stagepass.domain.queue.QueueStatus;
 import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationSeatRepository;
@@ -26,6 +29,8 @@ public class ReservationExpiryScheduler {
   private final SeatRedisRepository seatRedisRepository;
   private final EventPublisher eventPublisher;
   private final WaitlistService waitlistService;
+  private final QueueService queueService;
+  private final QueueEntryRepository queueEntryRepository;
 
   // 1분마다 만료된 PENDING 예매 정리
   @Scheduled(fixedDelay = 60_000)
@@ -55,10 +60,18 @@ public class ReservationExpiryScheduler {
             );
           });
 
-      log.info("[Scheduler] 예매 만료 처리 reservationId={}", reservation.getId());
+      Long showId = reservation.getShow().getId();
+      Long userId = reservation.getUser().getId();
 
-      // 선점이 풀린 좌석이 있으므로 취소 대기 첫 번째 대기자에게 알림
-      waitlistService.notifyNext(reservation.getShow().getId());
+      // 대기열에서 ACTIVATED 상태였던 유저면 다음 배치 활성화
+      queueEntryRepository.findByShowIdAndUserId(showId, userId)
+          .filter(e -> e.getStatus() == QueueStatus.ACTIVATED)
+          .ifPresent(e -> queueService.activateNextBatch(showId));
+
+      // 취소 대기 첫 번째 대기자에게 알림
+      waitlistService.notifyNext(showId);
+
+      log.info("[Scheduler] 예매 만료 처리 reservationId={}", reservation.getId());
     }
   }
 }
