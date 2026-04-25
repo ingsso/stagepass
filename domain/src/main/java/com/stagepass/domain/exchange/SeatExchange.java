@@ -1,5 +1,7 @@
 package com.stagepass.domain.exchange;
 
+import com.stagepass.common.exception.BusinessException;
+import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.common.BaseEntity;
 import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.user.User;
@@ -55,19 +57,29 @@ public class SeatExchange extends BaseEntity {
   }
 
   public void accept() {
+    requirePending();
     this.status = SeatExchangeStatus.ACCEPTED;
     this.completedAt = LocalDateTime.now();
   }
 
   public void reject() {
+    requirePending();
     this.status = SeatExchangeStatus.REJECTED;
   }
 
   public void cancel() {
+    requirePending();
     this.status = SeatExchangeStatus.CANCELLED;
   }
 
   public void expire() {
+    if (this.status != SeatExchangeStatus.PENDING) return; // 멱등 처리
     this.status = SeatExchangeStatus.EXPIRED;
+  }
+
+  private void requirePending() {
+    if (this.status != SeatExchangeStatus.PENDING) {
+      throw new BusinessException(ErrorCode.EXCHANGE_NOT_PENDING);
+    }
   }
 }
