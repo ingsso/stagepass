@@ -66,4 +66,8 @@ public class SeatExchange extends BaseEntity {
   public void cancel() {
     this.status = SeatExchangeStatus.CANCELLED;
   }
+
+  public void expire() {
+    this.status = SeatExchangeStatus.EXPIRED;
+  }
 }
