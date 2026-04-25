@@ -4,6 +4,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -43,4 +44,7 @@ public interface TransferRepository extends JpaRepository<Transfer, Long> {
   List<Transfer> findByFromUserIdOrderByCreatedAtDesc(Long userId);
 
   Optional<Transfer> findByIdAndFromUserId(Long id, Long fromUserId);
+
+  // 공연 시작 시각이 지난 OPEN 양도 글 (만료 처리용)
+  List<Transfer> findByStatusAndExpiresAtBefore(TransferStatus status, LocalDateTime now);
 }
