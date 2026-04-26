@@ -13,7 +13,17 @@ import java.util.Optional;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
 
-  List<Reservation> findByUserId(Long userId);
+  // 내 예매 목록 — Show/Performance/ReservationSeats/Seat 한 번에 페치 (N+1 방지)
+  @Query("""
+      SELECT DISTINCT r FROM Reservation r
+      JOIN FETCH r.show s
+      JOIN FETCH s.performance
+      LEFT JOIN FETCH r.reservationSeats rs
+      LEFT JOIN FETCH rs.seat
+      WHERE r.user.id = :userId
+      ORDER BY r.reservedAt DESC
+      """)
+  List<Reservation> findByUserId(@Param("userId") Long userId);
 
   List<Reservation> findByShowId(Long showId);
 
