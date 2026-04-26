@@ -24,6 +24,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -40,18 +41,21 @@ public class SeatService {
   private final EventPublisher eventPublisher;
   private final CacheManager cacheManager;
 
-  // 회차별 좌석 목록 조회 — N+1 제거(JOIN FETCH) + Redis 캐싱(TTL 10s)
+  // 회차별 좌석 목록 조회 — N+1 제거(JOIN FETCH) + Redis TTL Pipeline + 캐싱(TTL 10s)
   @Cacheable(value = "seat-list", key = "#showId")
   @Transactional(readOnly = true)
   public List<SeatResponse> getSeats(Long showId) {
     List<Seat> seats = seatRepository.findByShowIdWithZone(showId);
-    List<SeatResponse> result = new ArrayList<>();
 
-    for (Seat seat : seats) {
-      long ttl = seatRedisRepository.getRemainingTtl(seat.getId());
-      result.add(new SeatResponse(seat, ttl > 0 ? ttl : null));
-    }
-    return result;
+    List<Long> seatIds = seats.stream().map(Seat::getId).toList();
+    Map<Long, Long> ttlMap = seatRedisRepository.getBulkRemainingTtl(seatIds);
+
+    return seats.stream()
+        .map(seat -> {
+          long ttl = ttlMap.getOrDefault(seat.getId(), 0L);
+          return new SeatResponse(seat, ttl > 0 ? ttl : null);
+        })
+        .toList();
   }
 
   // 좌석 선점 — Redis SET NX PX + 캐시 무효화

@@ -1,12 +1,15 @@
 package com.stagepass.infra.redis;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.stereotype.Repository;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 @Repository
@@ -53,5 +56,23 @@ public class SeatRedisRepository {
   public long getRemainingTtl(Long seatId) {
     Long ttl = redisTemplate.getExpire(SEAT_KEY_PREFIX + seatId, TimeUnit.SECONDS);
     return ttl != null ? ttl : 0L;
+  }
+
+  // 좌석 목록 TTL 일괄 조회 — Pipeline으로 N번 왕복 → 1번 왕복
+  public Map<Long, Long> getBulkRemainingTtl(List<Long> seatIds) {
+    List<Object> results = redisTemplate.executePipelined((RedisCallback<Object>) connection -> {
+      for (Long seatId : seatIds) {
+        byte[] key = redisTemplate.getStringSerializer().serialize(SEAT_KEY_PREFIX + seatId);
+        connection.keyCommands().ttl(key);
+      }
+      return null;
+    });
+
+    Map<Long, Long> ttlMap = new HashMap<>();
+    for (int i = 0; i < seatIds.size(); i++) {
+      Long ttl = (Long) results.get(i);
+      ttlMap.put(seatIds.get(i), ttl != null ? ttl : 0L);
+    }
+    return ttlMap;
   }
 }

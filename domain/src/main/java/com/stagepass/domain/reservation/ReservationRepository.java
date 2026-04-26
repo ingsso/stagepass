@@ -1,6 +1,7 @@
 package com.stagepass.domain.reservation;
 
 import jakarta.persistence.LockModeType;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
@@ -12,13 +13,23 @@ import java.util.Optional;
 
 public interface ReservationRepository extends JpaRepository<Reservation, Long> {
 
-  List<Reservation> findByUserId(Long userId);
+  // 내 예매 목록 — Show/Performance/ReservationSeats/Seat 한 번에 페치 (N+1 방지)
+  @Query("""
+      SELECT DISTINCT r FROM Reservation r
+      JOIN FETCH r.show s
+      JOIN FETCH s.performance
+      LEFT JOIN FETCH r.reservationSeats rs
+      LEFT JOIN FETCH rs.seat
+      WHERE r.user.id = :userId
+      ORDER BY r.reservedAt DESC
+      """)
+  List<Reservation> findByUserId(@Param("userId") Long userId);
 
   List<Reservation> findByShowId(Long showId);
 
-  // 만료 처리 대상 조회 (스케줄러용)
+  // 만료 처리 대상 배치 조회 (스케줄러용) — Pageable로 청크 단위 처리
   @Query("SELECT r FROM Reservation r WHERE r.status = 'PENDING' AND r.expiresAt < :now")
-  List<Reservation> findExpiredReservations(@Param("now") LocalDateTime now);
+  List<Reservation> findExpiredReservations(@Param("now") LocalDateTime now, Pageable pageable);
 
   Optional<Reservation> findByIdAndUserId(Long id, Long userId);
 

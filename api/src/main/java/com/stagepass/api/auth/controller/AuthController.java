@@ -2,21 +2,13 @@ package com.stagepass.api.auth.controller;
 
 import jakarta.validation.Valid;
 import com.stagepass.api.auth.dto.*;
-import jakarta.validation.Valid;
 import com.stagepass.api.auth.service.AuthService;
-import jakarta.validation.Valid;
 import com.stagepass.common.response.ApiResponse;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "인증", description = "회원가입, 로그인, 토큰 재발급, 로그아웃 API")

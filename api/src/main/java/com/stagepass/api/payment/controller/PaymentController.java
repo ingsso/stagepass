@@ -2,25 +2,15 @@ package com.stagepass.api.payment.controller;
 
 import jakarta.validation.Valid;
 import com.stagepass.api.payment.dto.*;
-import jakarta.validation.Valid;
 import com.stagepass.api.payment.service.ApiPaymentService;
-import jakarta.validation.Valid;
 import com.stagepass.common.response.ApiResponse;
-import jakarta.validation.Valid;
 import com.stagepass.api.payment.dto.PaymentConfirmRequest;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Parameter;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
-import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
 @Tag(name = "결제", description = "Toss Payments 연동 결제 API")

@@ -9,7 +9,10 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "transfers")
+@Table(name = "transfers", indexes = {
+    @Index(name = "idx_transfers_status", columnList = "status"),
+    @Index(name = "idx_transfers_from_user_id", columnList = "from_user_id")
+})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Transfer extends BaseEntity {
