@@ -12,6 +12,7 @@ import com.stagepass.kafka.event.SeatHoldEvent;
 import com.stagepass.kafka.producer.EventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,24 +33,36 @@ public class ReservationExpiryScheduler {
   private final QueueService queueService;
   private final QueueEntryRepository queueEntryRepository;
 
-  // 1분마다 만료된 PENDING 예매 정리
-  @Scheduled(fixedDelay = 60_000)
-  @Transactional
-  public void expireReservations() {
-    List<Reservation> expired =
-        reservationRepository.findExpiredReservations(LocalDateTime.now());
+  private static final int BATCH_SIZE = 100;
 
-    if (expired.isEmpty()) return;
+  // 1분마다 만료된 PENDING 예매를 100건씩 배치 처리 — 단일 대형 트랜잭션 방지
+  @Scheduled(fixedDelay = 60_000)
+  public void expireReservations() {
+    List<Reservation> batch;
+    int totalProcessed = 0;
+
+    do {
+      batch = processNextBatch();
+      totalProcessed += batch.size();
+    } while (batch.size() == BATCH_SIZE); // 조회 건수가 배치 크기와 같으면 다음 배치 존재
+
+    if (totalProcessed > 0) {
+      log.info("[Scheduler] 예매 만료 처리 완료 total={}", totalProcessed);
+    }
+  }
+
+  // 각 배치를 별도 트랜잭션으로 처리 — 실패 시 해당 배치만 롤백
+  @Transactional
+  public List<Reservation> processNextBatch() {
+    List<Reservation> expired = reservationRepository.findExpiredReservations(
+        LocalDateTime.now(), PageRequest.of(0, BATCH_SIZE));
 
     for (Reservation reservation : expired) {
       reservation.expire();
 
       reservationSeatRepository.findByReservationIdWithSeat(reservation.getId())
           .forEach(rs -> {
-            seatRedisRepository.release(
-                rs.getSeat().getId(),
-                reservation.getUser().getId()
-            );
+            seatRedisRepository.release(rs.getSeat().getId(), reservation.getUser().getId());
             eventPublisher.publishSeatHoldExpired(
                 new SeatHoldEvent(
                     rs.getSeat().getId(),
@@ -63,15 +76,15 @@ public class ReservationExpiryScheduler {
       Long showId = reservation.getShow().getId();
       Long userId = reservation.getUser().getId();
 
-      // 대기열에서 ACTIVATED 상태였던 유저면 다음 배치 활성화
       queueEntryRepository.findByShowIdAndUserId(showId, userId)
           .filter(e -> e.getStatus() == QueueStatus.ACTIVATED)
           .ifPresent(e -> queueService.activateNextBatch(showId));
 
-      // 취소 대기 첫 번째 대기자에게 알림
       waitlistService.notifyNext(showId);
 
       log.info("[Scheduler] 예매 만료 처리 reservationId={}", reservation.getId());
     }
+
+    return expired;
   }
 }

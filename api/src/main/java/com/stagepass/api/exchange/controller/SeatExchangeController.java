@@ -2,24 +2,15 @@ package com.stagepass.api.exchange.controller;
 
 import jakarta.validation.Valid;
 import com.stagepass.api.exchange.dto.ExchangeRequest;
-import jakarta.validation.Valid;
 import com.stagepass.api.exchange.dto.ExchangeResponse;
-import jakarta.validation.Valid;
 import com.stagepass.api.exchange.service.SeatExchangeService;
-import jakarta.validation.Valid;
 import com.stagepass.common.response.ApiResponse;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "자리 교환", description = "같은 회차 내 좌석 교환 API")

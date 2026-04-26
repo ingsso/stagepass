@@ -2,24 +2,15 @@ package com.stagepass.api.transfer.controller;
 
 import jakarta.validation.Valid;
 import com.stagepass.api.transfer.dto.TransferCreateRequest;
-import jakarta.validation.Valid;
 import com.stagepass.api.transfer.dto.TransferResponse;
-import jakarta.validation.Valid;
 import com.stagepass.api.transfer.service.TransferService;
-import jakarta.validation.Valid;
 import com.stagepass.common.response.ApiResponse;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.Operation;
-import jakarta.validation.Valid;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
-import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 
-import jakarta.validation.Valid;
 import java.util.List;
 
 @Tag(name = "양도", description = "티켓 양도 게시판 API")
