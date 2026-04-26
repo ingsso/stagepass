@@ -6,6 +6,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -21,6 +22,7 @@ import java.util.List;
 
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 @RequiredArgsConstructor
 public class SecurityConfig {
 
@@ -42,10 +44,6 @@ public class SecurityConfig {
             .requestMatchers(HttpMethod.GET, "/api/shows/**").permitAll()
             // Swagger
             .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
-            // 어드민 전용
-            .requestMatchers(HttpMethod.POST, "/api/performances", "/api/performances/*/shows").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.PUT, "/api/performances/**").hasRole("ADMIN")
-            .requestMatchers(HttpMethod.DELETE, "/api/performances/**").hasRole("ADMIN")
             // 인증 필요
             .anyRequest().authenticated()
         )

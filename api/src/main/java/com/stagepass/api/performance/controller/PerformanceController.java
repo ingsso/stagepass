@@ -8,6 +8,7 @@ import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
@@ -49,6 +50,7 @@ public class PerformanceController {
     return ResponseEntity.ok(ApiResponse.ok(performanceService.getShows(id)));
   }
 
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "공연 등록", description = "새로운 공연을 등록합니다. (어드민 전용)")
   @PostMapping
   public ResponseEntity<ApiResponse<PerformanceResponse>> create(
@@ -56,6 +58,7 @@ public class PerformanceController {
     return ResponseEntity.ok(ApiResponse.ok(performanceService.create(request)));
   }
 
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "공연 수정", description = "공연 정보를 수정합니다. (어드민 전용)")
   @PutMapping("/{id}")
   public ResponseEntity<ApiResponse<PerformanceResponse>> update(
@@ -64,6 +67,7 @@ public class PerformanceController {
     return ResponseEntity.ok(ApiResponse.ok(performanceService.update(id, request)));
   }
 
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "공연 삭제", description = "공연을 삭제합니다. (어드민 전용)")
   @DeleteMapping("/{id}")
   public ResponseEntity<ApiResponse<Void>> delete(
@@ -72,6 +76,7 @@ public class PerformanceController {
     return ResponseEntity.ok(ApiResponse.ok());
   }
 
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "회차 등록", description = "특정 공연에 새로운 회차를 추가합니다. (어드민 전용)")
   @PostMapping("/{id}/shows")
   public ResponseEntity<ApiResponse<ShowResponse>> createShow(

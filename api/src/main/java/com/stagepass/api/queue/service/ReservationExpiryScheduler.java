@@ -8,6 +8,7 @@ import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationSeatRepository;
 import com.stagepass.infra.redis.SeatRedisRepository;
+import com.stagepass.kafka.event.NotificationEvent;
 import com.stagepass.kafka.event.SeatHoldEvent;
 import com.stagepass.kafka.producer.EventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -81,6 +82,10 @@ public class ReservationExpiryScheduler {
           .ifPresent(e -> queueService.activateNextBatch(showId));
 
       waitlistService.notifyNext(showId);
+
+      eventPublisher.publishNotification(new NotificationEvent(
+          userId, "RESERVATION_EXPIRED", "예매 시간이 만료되었습니다. 좌석 선점이 해제됩니다."
+      ));
 
       log.info("[Scheduler] 예매 만료 처리 reservationId={}", reservation.getId());
     }
