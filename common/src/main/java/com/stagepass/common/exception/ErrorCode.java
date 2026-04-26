@@ -24,6 +24,7 @@ public enum ErrorCode {
   SHOW_NOT_FOUND(HttpStatus.NOT_FOUND, "회차를 찾을 수 없습니다."),
   SEAT_NOT_FOUND(HttpStatus.NOT_FOUND, "좌석을 찾을 수 없습니다."),
   SEAT_ALREADY_HELD(HttpStatus.CONFLICT, "이미 선점된 좌석입니다."),
+  SHOW_SOLD_OUT(HttpStatus.CONFLICT, "잔여 좌석이 부족합니다."),
 
   // 예매 / 결제
   RESERVATION_NOT_FOUND(HttpStatus.NOT_FOUND, "예매 정보를 찾을 수 없습니다."),
