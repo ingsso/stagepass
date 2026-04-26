@@ -10,7 +10,8 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "waitlist_entries",
-    uniqueConstraints = @UniqueConstraint(columnNames = {"show_id", "user_id"}))
+    uniqueConstraints = @UniqueConstraint(columnNames = {"show_id", "user_id"}),
+    indexes = @Index(name = "idx_waitlist_entries_show_id_status", columnList = "show_id, status"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class WaitlistEntry extends BaseEntity {

@@ -11,7 +11,9 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "seat_exchanges")
+@Table(name = "seat_exchanges", indexes = {
+    @Index(name = "idx_seat_exchanges_status_expires_at", columnList = "status, expires_at")
+})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class SeatExchange extends BaseEntity {
