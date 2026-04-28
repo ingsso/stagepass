@@ -43,7 +43,7 @@ public class Reservation extends BaseEntity {
   private LocalDateTime reservedAt;
   private LocalDateTime expiresAt;   // 선점 만료 시각
 
-  @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL)
+  @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true)
   @org.hibernate.annotations.BatchSize(size = 30)
   private List<ReservationSeat> reservationSeats = new ArrayList<>();
 
