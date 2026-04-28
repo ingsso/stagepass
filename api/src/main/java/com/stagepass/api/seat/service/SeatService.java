@@ -22,6 +22,7 @@ import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.stagepass.domain.reservation.ReservationStatus;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -62,6 +63,11 @@ public class SeatService {
   @CacheEvict(value = "seat-list", key = "#showId")
   @Transactional
   public SeatHoldResponse holdSeats(Long showId, Long userId, SeatHoldRequest request) {
+    // 동일 회차 PENDING 예매 중복 선점 방지
+    if (reservationRepository.existsByUserIdAndShowIdAndStatus(userId, showId, ReservationStatus.PENDING)) {
+      throw new BusinessException(ErrorCode.DUPLICATE_SEAT_HOLD);
+    }
+
     User user = userRepository.findById(userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
     Show show = showRepository.findById(showId)

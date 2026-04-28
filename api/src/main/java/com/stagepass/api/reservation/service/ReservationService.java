@@ -1,14 +1,17 @@
 package com.stagepass.api.reservation.service;
 
+import com.stagepass.api.queue.service.QueueService;
 import com.stagepass.api.reservation.dto.ReservationResponse;
 import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
+import com.stagepass.domain.queue.QueueEntryRepository;
+import com.stagepass.domain.queue.QueueStatus;
 import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationSeatRepository;
-import com.stagepass.infra.redis.SeatRedisRepository;
 import com.stagepass.domain.reservation.ReservationStatus;
+import com.stagepass.infra.redis.SeatRedisRepository;
 import com.stagepass.kafka.event.PaymentCancelEvent;
 import com.stagepass.kafka.event.ReservationEvent;
 import com.stagepass.kafka.producer.EventPublisher;
@@ -29,6 +32,8 @@ public class ReservationService {
   private final SeatRedisRepository seatRedisRepository;
   private final EventPublisher eventPublisher;
   private final WaitlistService waitlistService;
+  private final QueueService queueService;
+  private final QueueEntryRepository queueEntryRepository;
 
   // 내 예매 목록
   @Transactional(readOnly = true)
@@ -72,6 +77,11 @@ public class ReservationService {
 
     // 취소 대기 첫 번째 대기자에게 알림
     waitlistService.notifyNext(showId);
+
+    // ACTIVATED 상태 큐 슬롯이 반환되면 다음 배치 활성화
+    queueEntryRepository.findByShowIdAndUserId(showId, userId)
+        .filter(e -> e.getStatus() == QueueStatus.ACTIVATED)
+        .ifPresent(e -> queueService.activateNextBatch(showId));
 
     log.info("[Reservation] 예매 취소 reservationId={} userId={}", reservationId, userId);
   }

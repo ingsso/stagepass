@@ -1,5 +1,6 @@
 package com.stagepass.api.reservation.service;
 
+import com.stagepass.api.queue.service.QueueService;
 import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
@@ -9,6 +10,7 @@ import com.stagepass.domain.performance.ShowStatus;
 import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationSeatRepository;
+import com.stagepass.domain.queue.QueueEntryRepository;
 import com.stagepass.domain.reservation.ReservationStatus;
 import com.stagepass.domain.user.User;
 import com.stagepass.domain.user.UserRole;
@@ -47,6 +49,8 @@ class ReservationServiceTest {
   @Mock private SeatRedisRepository seatRedisRepository;
   @Mock private EventPublisher eventPublisher;
   @Mock private WaitlistService waitlistService;
+  @Mock private QueueService queueService;
+  @Mock private QueueEntryRepository queueEntryRepository;
 
   private static final Long USER_ID = 1L;
   private static final Long RESERVATION_ID = 10L;

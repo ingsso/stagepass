@@ -5,7 +5,6 @@ import com.stagepass.admin.performance.dto.ZoneRequest;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.performance.*;
-import com.stagepass.domain.reservation.ReservationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -21,16 +20,12 @@ public class AdminPerformanceService {
   private final ShowRepository showRepository;
   private final ZoneRepository zoneRepository;
   private final SeatRepository seatRepository;
-  private final ReservationRepository reservationRepository;
 
-  // 회차별 예매 현황
+  // 회차별 예매 현황 — 집계 쿼리 1회 (N+1 제거)
   @Transactional(readOnly = true)
   public List<AdminShowResponse> getShowStats(Long performanceId) {
-    return showRepository.findByPerformanceId(performanceId).stream()
-        .map(show -> {
-          int count = reservationRepository.findByShowId(show.getId()).size();
-          return new AdminShowResponse(show, count);
-        })
+    return showRepository.findWithConfirmedReservationCount(performanceId).stream()
+        .map(row -> new AdminShowResponse((Show) row[0], ((Long) row[1]).intValue()))
         .toList();
   }
 

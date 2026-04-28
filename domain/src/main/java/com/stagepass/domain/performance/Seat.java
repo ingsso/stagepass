@@ -5,7 +5,8 @@ import lombok.*;
 
 @Entity
 @Table(name = "seats",
-    uniqueConstraints = @UniqueConstraint(columnNames = {"zone_id", "seat_code"}))
+    uniqueConstraints = @UniqueConstraint(columnNames = {"zone_id", "seat_code"}),
+    indexes = @Index(name = "idx_seats_zone_id", columnList = "zone_id"))
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Seat {
