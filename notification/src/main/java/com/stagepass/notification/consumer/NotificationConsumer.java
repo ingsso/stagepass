@@ -1,5 +1,6 @@
 package com.stagepass.notification.consumer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stagepass.infra.kafka.KafkaTopics;
 import com.stagepass.kafka.event.NotificationEvent;
@@ -29,9 +30,12 @@ public class NotificationConsumer {
       log.info("[Notification] 알림 수신 userId={} type={}", event.getUserId(), event.getType());
       publisher.publish(event.getUserId(), event.getType(), event.getMessage());
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Notification] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 알림 처리 실패 message={}", message, e);
-      ack.acknowledge();
+      throw new RuntimeException(e);
     }
   }
 
@@ -42,9 +46,12 @@ public class NotificationConsumer {
       log.info("[Notification] 양도 완료 fromUserId={}", event.getFromUserId());
       publisher.publish(event.getFromUserId(), "TRANSFER_CLAIMED", "회원님의 티켓이 양도되었습니다.");
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Notification] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 양도 알림 처리 실패 message={}", message, e);
-      ack.acknowledge();
+      throw new RuntimeException(e);
     }
   }
 
@@ -56,9 +63,12 @@ public class NotificationConsumer {
       publisher.publish(event.getUserId(), "WAITLIST_NOTIFIED",
           "취소된 좌석이 생겼습니다! 10분 내로 예매를 완료해주세요.");
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Notification] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 취소 대기 알림 처리 실패 message={}", message, e);
-      ack.acknowledge();
+      throw new RuntimeException(e);
     }
   }
 
@@ -71,9 +81,12 @@ public class NotificationConsumer {
       publisher.publish(event.getProposerId(), "EXCHANGE_COMPLETED", "자리 교환이 완료되었습니다.");
       publisher.publish(event.getReceiverId(), "EXCHANGE_COMPLETED", "자리 교환이 완료되었습니다.");
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Notification] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 교환 완료 알림 처리 실패 message={}", message, e);
-      ack.acknowledge();
+      throw new RuntimeException(e);
     }
   }
 
@@ -85,9 +98,12 @@ public class NotificationConsumer {
       publisher.publish(event.getUserId(), "QUEUE_ACTIVATED",
           "입장이 허가되었습니다. 지금 바로 좌석을 선택해주세요.");
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Notification] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge();
     } catch (Exception e) {
       log.error("[Notification] 대기열 알림 처리 실패 message={}", message, e);
-      ack.acknowledge();
+      throw new RuntimeException(e);
     }
   }
 }

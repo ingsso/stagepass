@@ -10,6 +10,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -82,18 +84,14 @@ public class EventPublisher {
   private void publish(String topic, String key, Object event) {
     try {
       String message = objectMapper.writeValueAsString(event);
-      kafkaTemplate.send(topic, key, message)
-          .whenComplete((result, ex) -> {
-            if (ex != null) {
-              log.error("[Kafka] 발행 실패 topic={} key={} error={}", topic, key, ex.getMessage());
-            } else {
-              log.debug("[Kafka] 발행 성공 topic={} key={} offset={}",
-                  topic, key, result.getRecordMetadata().offset());
-            }
-          });
+      kafkaTemplate.send(topic, key, message).get(5, TimeUnit.SECONDS);
+      log.debug("[Kafka] 발행 성공 topic={} key={}", topic, key);
     } catch (JsonProcessingException e) {
       log.error("[Kafka] 직렬화 실패 topic={} error={}", topic, e.getMessage());
       throw new RuntimeException("Kafka 이벤트 직렬화 실패", e);
+    } catch (Exception e) {
+      log.error("[Kafka] 발행 실패 topic={} key={} error={}", topic, key, e.getMessage());
+      throw new RuntimeException("Kafka 이벤트 발행 실패: " + topic, e);
     }
   }
 }

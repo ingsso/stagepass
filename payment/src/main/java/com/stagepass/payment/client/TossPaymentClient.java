@@ -3,6 +3,7 @@ package com.stagepass.payment.client;
 import com.stagepass.payment.dto.TossPaymentCancelRequest;
 import com.stagepass.payment.dto.TossPaymentConfirmRequest;
 import com.stagepass.payment.dto.TossPaymentResponse;
+import io.github.resilience4j.circuitbreaker.annotation.CircuitBreaker;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
@@ -35,6 +36,7 @@ public class TossPaymentClient {
         .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
   }
 
+  @CircuitBreaker(name = "toss")
   public TossPaymentResponse confirm(TossPaymentConfirmRequest request) {
     HttpEntity<TossPaymentConfirmRequest> entity = new HttpEntity<>(request, jsonHeaders());
     try {
@@ -52,6 +54,7 @@ public class TossPaymentClient {
     }
   }
 
+  @CircuitBreaker(name = "toss")
   public TossPaymentResponse cancel(String paymentKey, String reason, Integer amount) {
     TossPaymentCancelRequest body = new TossPaymentCancelRequest(reason, amount);
     HttpEntity<TossPaymentCancelRequest> entity = new HttpEntity<>(body, jsonHeaders());

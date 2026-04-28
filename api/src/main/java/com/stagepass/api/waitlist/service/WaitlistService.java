@@ -88,8 +88,10 @@ public class WaitlistService {
     if (nextUserId == null) return;
 
     try {
-      waitlistRepository.findByShowIdAndUserId(showId, nextUserId)
-          .ifPresent(entry -> entry.notify(LocalDateTime.now()));
+      WaitlistEntry entry = waitlistRepository.findByShowIdAndUserId(showId, nextUserId)
+          .orElseThrow(() -> new IllegalStateException(
+              "Waitlist entry not found after Redis pop: showId=" + showId + " userId=" + nextUserId));
+      entry.notify(LocalDateTime.now());
       eventPublisher.publishWaitlistNotified(new WaitlistEvent(showId, nextUserId));
       log.info("[Waitlist] 대기자 알림 showId={} userId={}", showId, nextUserId);
     } catch (Exception e) {
