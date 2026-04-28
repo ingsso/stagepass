@@ -34,6 +34,9 @@ public class KafkaConsumerConfig {
     config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
     config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false); // 수동 커밋
+    config.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 60_000);      // 기본 30s → 배치 처리 중 불필요한 리밸런싱 방지
+    config.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10_000);   // session-timeout의 1/3
+    config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 100);           // 한 번에 처리할 최대 레코드 수
     return new DefaultKafkaConsumerFactory<>(config);
   }
 

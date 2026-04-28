@@ -84,7 +84,13 @@ public class WaitlistService {
   // REQUIRES_NEW: 호출자 트랜잭션과 분리 → 알림 실패가 예매 취소를 롤백시키지 않음
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void notifyNext(Long showId) {
-    Long nextUserId = waitlistRedisRepository.popFirst(showId);
+    Long nextUserId;
+    try {
+      nextUserId = waitlistRedisRepository.popFirst(showId);
+    } catch (IllegalStateException e) {
+      log.error("[Waitlist] 손상된 대기열 항목 감지, 알림 스킵 showId={}", showId, e);
+      return;
+    }
     if (nextUserId == null) return;
 
     try {

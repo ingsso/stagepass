@@ -73,6 +73,12 @@ public class SeatService {
     Show show = showRepository.findById(showId)
         .orElseThrow(() -> new BusinessException(ErrorCode.SHOW_NOT_FOUND));
 
+    // 좌석 존재 여부를 hold 시도 전에 검증 — DB 실패 시 Redis 선점 누수 방지
+    List<Seat> seats = seatRepository.findAllByIdWithZone(request.getSeatIds());
+    if (seats.size() != request.getSeatIds().size()) {
+      throw new BusinessException(ErrorCode.SEAT_NOT_FOUND);
+    }
+
     List<Long> heldIds = new ArrayList<>();
     List<Long> failedIds = new ArrayList<>();
 
@@ -89,12 +95,6 @@ public class SeatService {
     if (!failedIds.isEmpty()) {
       heldIds.forEach(seatId -> seatRedisRepository.release(seatId, userId));
       throw new BusinessException(ErrorCode.SEAT_ALREADY_HELD);
-    }
-
-    // 선점된 좌석 일괄 조회 (zone JOIN FETCH — N+1 방지)
-    List<Seat> seats = seatRepository.findAllByIdWithZone(heldIds);
-    if (seats.size() != heldIds.size()) {
-      throw new BusinessException(ErrorCode.SEAT_NOT_FOUND);
     }
 
     int totalPrice = seats.stream()

@@ -32,11 +32,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
+import org.mockito.InOrder;
+
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.inOrder;
 
 @ExtendWith(MockitoExtension.class)
 class SeatExchangeServiceTest {
@@ -305,5 +308,61 @@ class SeatExchangeServiceTest {
     assertThatThrownBy(() -> exchangeService.accept(exchangeId, RECEIVER_ID))
         .isInstanceOf(BusinessException.class)
         .hasMessageContaining(ErrorCode.EXCHANGE_NOT_PENDING.getMessage());
+  }
+
+  @Test
+  @DisplayName("교환 수락 — 비관적 락은 항상 작은 예매 ID 먼저 획득 (데드락 방지)")
+  void accept_비관적락_순서_데드락방지() {
+    // proposerReservation.id(10) < receiverReservation.id(20) — 작은 ID가 먼저여야 함
+    Long exchangeId = 1L;
+    SeatExchange exchange = SeatExchange.builder()
+        .proposer(proposer).receiver(receiver)
+        .proposerReservation(myReservation)     // id = 10
+        .receiverReservation(targetReservation) // id = 20
+        .build();
+    ReflectionTestUtils.setField(exchange, "id", exchangeId);
+
+    given(exchangeRepository.findByIdWithDetails(exchangeId)).willReturn(Optional.of(exchange));
+    given(reservationRepository.findByIdWithLock(MY_RES_ID)).willReturn(Optional.of(myReservation));
+    given(reservationRepository.findByIdWithLock(TARGET_RES_ID)).willReturn(Optional.of(targetReservation));
+
+    exchangeService.accept(exchangeId, RECEIVER_ID);
+
+    // 작은 ID(10)를 먼저, 큰 ID(20)를 나중에 락 획득했는지 순서 검증
+    InOrder lockOrder = inOrder(reservationRepository);
+    lockOrder.verify(reservationRepository).findByIdWithLock(MY_RES_ID);      // 10 먼저
+    lockOrder.verify(reservationRepository).findByIdWithLock(TARGET_RES_ID);  // 20 나중
+  }
+
+  @Test
+  @DisplayName("교환 수락 — 역순 예매 ID에서도 작은 ID 먼저 락 획득 (데드락 방지)")
+  void accept_역순ID_비관적락_순서검증() {
+    // proposerReservation.id(20) > receiverReservation.id(10) — 여전히 10 먼저
+    Long exchangeId = 2L;
+
+    Reservation largeIdRes = Reservation.builder()
+        .user(proposer).show(show).totalPrice(50000).build();
+    ReflectionTestUtils.setField(largeIdRes, "id", TARGET_RES_ID); // 20
+
+    Reservation smallIdRes = Reservation.builder()
+        .user(receiver).show(show).totalPrice(50000).build();
+    ReflectionTestUtils.setField(smallIdRes, "id", MY_RES_ID); // 10
+
+    SeatExchange exchange = SeatExchange.builder()
+        .proposer(proposer).receiver(receiver)
+        .proposerReservation(largeIdRes)  // id = 20 (제안자가 큰 ID)
+        .receiverReservation(smallIdRes)  // id = 10 (수락자가 작은 ID)
+        .build();
+    ReflectionTestUtils.setField(exchange, "id", exchangeId);
+
+    given(exchangeRepository.findByIdWithDetails(exchangeId)).willReturn(Optional.of(exchange));
+    given(reservationRepository.findByIdWithLock(MY_RES_ID)).willReturn(Optional.of(smallIdRes));
+    given(reservationRepository.findByIdWithLock(TARGET_RES_ID)).willReturn(Optional.of(largeIdRes));
+
+    exchangeService.accept(exchangeId, RECEIVER_ID);
+
+    InOrder lockOrder = inOrder(reservationRepository);
+    lockOrder.verify(reservationRepository).findByIdWithLock(MY_RES_ID);      // 10 먼저
+    lockOrder.verify(reservationRepository).findByIdWithLock(TARGET_RES_ID);  // 20 나중
   }
 }

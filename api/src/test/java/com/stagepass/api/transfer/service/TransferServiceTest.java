@@ -172,6 +172,28 @@ class TransferServiceTest {
   }
 
   @Test
+  @DisplayName("양도 수락 — 락 획득 후 예외 발생 시 Redis 락 해제")
+  void claim_예외시_락해제() {
+    Transfer transfer = Transfer.builder()
+        .reservation(confirmedReservation).fromUser(fromUser)
+        .expiresAt(futureShow.getShowDatetime()).build();
+    ReflectionTestUtils.setField(transfer, "id", TRANSFER_ID);
+
+    given(transferRepository.findById(TRANSFER_ID)).willReturn(Optional.of(transfer));
+    given(transferRedisRepository.claim(TRANSFER_ID, TO_USER_ID)).willReturn(true);
+    given(userRepository.findById(TO_USER_ID))
+        .willThrow(new BusinessException(ErrorCode.USER_NOT_FOUND));
+
+    assertThatThrownBy(() -> transferService.claim(TRANSFER_ID, TO_USER_ID))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.USER_NOT_FOUND);
+
+    then(transferRedisRepository).should().release(TRANSFER_ID);
+    then(eventPublisher).should(never()).publishTransferClaimed(any());
+  }
+
+  @Test
   @DisplayName("양도 취소 — OPEN 상태가 아니면 실패")
   void cancel_OPEN아님_실패() {
     Transfer transfer = Transfer.builder()

@@ -128,6 +128,7 @@ class SeatServiceTest {
 
     given(userRepository.findById(userId)).willReturn(Optional.of(user));
     given(showRepository.findById(showId)).willReturn(Optional.of(show));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
     given(seatRedisRepository.hold(10L, userId)).willReturn(true);   // 10번 선점 성공
     given(seatRedisRepository.hold(11L, userId)).willReturn(false);  // 11번 이미 선점됨
 

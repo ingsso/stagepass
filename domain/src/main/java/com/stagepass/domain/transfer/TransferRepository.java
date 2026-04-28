@@ -40,8 +40,16 @@ public interface TransferRepository extends JpaRepository<Transfer, Long> {
   // 동일 예매에 이미 OPEN 양도 글이 있는지 확인
   boolean existsByReservationIdAndStatus(Long reservationId, TransferStatus status);
 
-  // 내가 올린 양도 글
-  List<Transfer> findByFromUserIdOrderByCreatedAtDesc(Long userId);
+  // 내가 올린 양도 글 — JOIN FETCH로 N+1 방지
+  @Query("""
+      SELECT t FROM Transfer t
+      JOIN FETCH t.reservation r
+      JOIN FETCH r.show s
+      JOIN FETCH s.performance
+      WHERE t.fromUser.id = :userId
+      ORDER BY t.createdAt DESC
+      """)
+  List<Transfer> findByFromUserIdOrderByCreatedAtDesc(@Param("userId") Long userId);
 
   Optional<Transfer> findByIdAndFromUserId(Long id, Long fromUserId);
 

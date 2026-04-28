@@ -1,9 +1,11 @@
 package com.stagepass.infra.redis;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Repository;
 
+@Slf4j
 @Repository
 @RequiredArgsConstructor
 public class WaitlistRedisRepository {
@@ -40,8 +42,11 @@ public class WaitlistRedisRepository {
     if (result == null) return null;
     try {
       return Long.parseLong(result.getValue());
-    } catch (Exception e) {
-      return null;
+    } catch (NumberFormatException e) {
+      log.error("[Waitlist] popMin에서 잘못된 userId 형식 검출 showId={} value={}",
+          showId, result.getValue(), e);
+      throw new IllegalStateException(
+          "Corrupted waitlist entry: showId=" + showId + " value=" + result.getValue(), e);
     }
   }
 
