@@ -16,6 +16,7 @@
 - [대기열 시스템](#대기열-시스템)
 - [취소 대기 시스템](#취소-대기-시스템)
 - [자리 교환](#자리-교환)
+- [안정성 설계](#안정성-설계)
 - [부하 테스트 결과](#부하-테스트-결과-k6)
 - [실행 방법](#실행-방법)
 
@@ -36,14 +37,16 @@
 
 - Redis `SET NX PX` 명령으로 **원자적 선점** 구현
 - TTL 5분 설정으로 미결제 시 자동 해제
+- Lua 스크립트(`GET + DEL`)로 선점 해제 시 race condition 방지
 - 선점 만료 이벤트를 Kafka로 발행해 DB 상태 동기화
+- 동일 회차 PENDING 예매 중복 선점 방지 (`existsByUserIdAndShowIdAndStatus`)
 
 ```
 좌석 선택 요청 (동시 N명)
        ↓
 Redis SET NX PX → 1명만 성공, 나머지 즉시 실패 반환
        ↓
-ticket.seat.hold 이벤트 발행 → Consumer가 DB 기록
+Reservation 저장 (PENDING) + seat.hold 이벤트 발행
 ```
 
 ### 🔄 2. 결제 분산 처리 (Saga 패턴)
@@ -52,13 +55,15 @@ ticket.seat.hold 이벤트 발행 → Consumer가 DB 기록
 - 결제 실패 시 **보상 트랜잭션**으로 선점 좌석 자동 해제
 - 서비스 간 강결합 제거 — 각 Consumer 독립 배포 가능
 - 멱등성 보장으로 중복 결제 방지 (`toss_order_id` unique 제약)
+- **Kafka 발행 동기화**: `.get(5s)`로 DB 커밋 후 이벤트 미발행 방지
+- **결제 취소 멱등성**: 이미 CANCELLED 상태이면 Toss API 재호출 없이 반환
 
 ### 🚦 3. 실시간 대기열
 티켓 오픈 순간 접속자를 순번 관리하고 입장 시점을 실시간으로 안내합니다.
 
 - Redis Sorted Set으로 **진입 timestamp 기반 순번 관리**
-- SSE(Server-Sent Events)로 대기 순번 실시간 전달
-- 앞 사람 결제 완료마다 `queue.activated` 이벤트 발행
+- SSE(Server-Sent Events) + **Redis Pub/Sub**으로 다중 인스턴스 환경에서 실시간 전달
+- 앞 사람 결제 완료마다 `queue.activated` 이벤트 발행, 다음 배치 자동 활성화
 
 ### 🔔 4. 취소 대기 & 자리 교환
 매진 이후에도 좌석을 얻을 수 있는 두 가지 경로를 제공합니다.
@@ -74,11 +79,12 @@ ticket.seat.hold 이벤트 발행 → Consumer가 DB 기록
 |------|------|
 | Backend | Java 21, Spring Boot 3.3, Gradle 멀티모듈 |
 | Message Broker | Apache Kafka |
-| Cache / 동시성 | Redis 7 |
+| Cache / 동시성 | Redis 7 (Lettuce, Sorted Set, Pub/Sub, Pipeline) |
 | Database | PostgreSQL 16 |
 | 결제 | 토스페이먼츠 |
-| 실시간 통신 | SSE (Server-Sent Events) |
+| 실시간 통신 | SSE (Server-Sent Events) + Redis Pub/Sub |
 | 인증 | JWT (Access 1h + Refresh 7d), BCrypt |
+| 회로 차단기 | resilience4j (`@CircuitBreaker`) |
 | API 문서 | SpringDoc OpenAPI (Swagger UI) |
 | 테스트 | JUnit 5, Mockito, Testcontainers |
 | 로컬 인프라 | Docker Compose |
@@ -94,13 +100,13 @@ graph TB
     subgraph Services["Spring Boot Services"]
         API["api :8080\nREST API + JWT + Security"]
         Admin["admin :8081\n공연/회차/좌석 관리"]
-        Payment["payment :8082\nToss Payments + Saga"]
+        Payment["payment :8082\nToss Payments + Saga\n+ CircuitBreaker"]
         Notification["notification :8083\nSSE 알림 발송"]
     end
 
     subgraph Infra["Infrastructure (Docker Compose)"]
         PG[("PostgreSQL :5432")]
-        Redis[("Redis :6379")]
+        Redis[("Redis :6379\nSortedSet / PubSub\n/ Pipeline / Pool")]
         Kafka["Kafka :9092"]
     end
 
@@ -116,6 +122,7 @@ graph TB
     Payment -->|payment.completed\npayment.failed| Kafka
 
     Notification -->|queue.activated\npayment.*\nwaitlist.notified\nexchange.completed| Kafka
+    Notification --> Redis
 
     Admin --> PG
     Admin --> Redis
@@ -132,13 +139,14 @@ sequenceDiagram
     participant P as Payment
 
     C->>A: POST /api/shows/{showId}/seats/hold
+    A->>A: 중복 PENDING 예매 체크 (existsByUserIdAndShowIdAndStatus)
     A->>R: SET seat:{id}:holder NX PX 300000 (각 좌석)
     alt 모든 좌석 선점 성공
         A->>A: Reservation 저장 (PENDING)
-        A->>K: seat.hold 이벤트 발행
+        A->>K: seat.hold 이벤트 발행 (sync .get(5s))
         A-->>C: 200 OK (heldSeatIds)
         K->>P: PaymentRequestedEvent
-        P->>P: Toss API 승인 요청
+        P->>P: Toss API 승인 요청 (CircuitBreaker 적용)
         alt 결제 성공
             P->>K: payment.completed
         else 결제 실패
@@ -146,7 +154,7 @@ sequenceDiagram
             P->>R: 좌석 선점 해제 (보상 트랜잭션)
         end
     else 일부 좌석 선점 실패
-        A->>R: 선점 성공한 좌석 전체 rollback
+        A->>R: 선점 성공한 좌석 전체 rollback (Lua 스크립트)
         A-->>C: 409 SEAT_ALREADY_HELD
     end
 ```
@@ -203,6 +211,8 @@ shows
 - `seats.status` — Redis가 primary (AVAILABLE / HOLDING / RESERVED), DB는 최종 확정 상태
 - `reservations.expires_at` — 선점 후 5분 만료 기준
 - `payments.toss_order_id` — unique 제약으로 중복 결제 방지
+- **복합 인덱스**: `reservations(status, expires_at)`, `seat_exchanges(status, expires_at)`, `transfers(status, expires_at)` — 스케줄러 배치 조회 최적화
+- `seats(zone_id)` — JOIN FETCH 쿼리 성능 개선
 
 <br>
 
@@ -214,10 +224,10 @@ shows
 | 회원가입 / 로그인 | JWT (Access 1h + Refresh 7d), Redis Refresh Token 관리 |
 | 토큰 재발급 / 로그아웃 | Refresh Token 검증, Redis 토큰 삭제 |
 | 공연 목록 조회 | 회차별 좌석 현황 포함 |
-| 좌석 선점 | Redis 원자적 선점 (SET NX), TTL 5분, 실패 시 전체 롤백 |
-| 결제 요청 | 토스페이먼츠 연동, Kafka 이벤트 발행 |
+| 좌석 선점 | Redis 원자적 선점 (SET NX), TTL 5분, 실패 시 전체 롤백, 중복 선점 방지 |
+| 결제 요청 | 토스페이먼츠 연동, Kafka 이벤트 발행 (동기 확인) |
 | 예매 내역 | JOIN FETCH로 N+1 방지 |
-| 실시간 알림 | SSE — 예매 완료 / 결제 실패 / 대기열 입장 / 취소 대기 / 교환 완료 |
+| 실시간 알림 | SSE + Redis Pub/Sub — 예매 완료 / 결제 실패 / 대기열 입장 / 취소 대기 / 교환 완료 |
 | 대기열 | Redis Sorted Set 순번 발급, 실시간 순번 안내 |
 | 취소 대기 | Redis Sorted Set 기반 순번 추적, 예매 취소 시 1순위 자동 알림 |
 | 자리 교환 | 동일 회차 예매자 간 좌석 교환 제안/수락, 비관적 락으로 원자적 스왑 |
@@ -228,7 +238,8 @@ shows
 | 공연 등록 / 수정 / 삭제 | 공연 기본 정보 관리 |
 | 회차 관리 | 날짜 / 시간, 총 좌석 수 설정 |
 | 구역 / 좌석 설정 | 등급별 가격, 행/열 기반 좌석 일괄 생성 |
-| 예매 현황 | 회차별 예매 목록 조회 |
+| 예매 현황 | 회차별 예매 목록 조회 (LEFT JOIN 단일 쿼리) |
+| 대시보드 | 총 예매/확정/취소/매출/오늘통계 — 단일 집계 쿼리 |
 
 <br>
 
@@ -240,8 +251,9 @@ shows
 | `ticket.seat.hold.expired` | kafka (TTL) | kafka | 선점 만료 처리 |
 | `ticket.seat.released` | kafka | kafka | 선점 해제 |
 | `payment.requested` | api | payment | 결제 요청 |
-| `payment.completed` | payment | kafka, notification | 결제 성공 |
+| `payment.completed` | payment | kafka, notification, api(queue) | 결제 성공 |
 | `payment.failed` | payment | kafka, notification | 결제 실패 → 보상 트랜잭션 |
+| `payment.cancel.requested` | api | payment | 결제 취소 요청 |
 | `reservation.confirmed` | kafka | notification | 예매 최종 확정 |
 | `reservation.cancelled` | api | kafka, notification | 예매 취소 |
 | `notification.send` | 각 Consumer | notification | 알림 발송 요청 |
@@ -250,6 +262,9 @@ shows
 | `waitlist.notified` | api | notification | 취소 대기 1순위 알림 |
 | `exchange.completed` | api | notification | 자리 교환 완료 알림 (양측) |
 
+**Consumer Group 분리 설계**
+- `payment.completed` 토픽을 `reservation-group`(예매 확정)과 `queue-payment-group`(대기열 활성화)이 독립 소비 → 각 로직 독립 처리
+
 <br>
 
 ## 결제 Saga 흐름
@@ -257,16 +272,16 @@ shows
 ```
 1. 사용자 결제 요청
         ↓
-2. payment.requested 발행
+2. payment.requested 발행 (sync .get(5s) — 발행 실패 시 트랜잭션 롤백)
         ↓
-3. Payment Consumer
+3. Payment Consumer (CircuitBreaker 적용)
    └── 토스페이먼츠 API 호출
          ├── 성공 → payment.completed 발행
          └── 실패 → payment.failed 발행
         ↓
 4-A. payment.completed
-   ├── Reservation Consumer  : DB 예매 확정
-   ├── Seat Consumer         : Redis HOLDING → DB RESERVED
+   ├── reservation-group     : DB 예매 확정
+   ├── queue-payment-group   : 다음 대기열 배치 활성화
    └── Notification Consumer : 완료 알림 발송
 
 4-B. payment.failed (보상 트랜잭션)
@@ -287,8 +302,8 @@ Redis Sorted Set
 흐름
   1. 사용자 접속 → 순번 발급 (ZADD)
   2. SSE 연결 유지 → 현재 순번 실시간 전달
-  3. 앞 사람 결제 완료 → queue.activated 발행
-  4. Consumer → 다음 사용자 SSE로 "입장 가능" 전달
+  3. 앞 사람 결제 완료 → queue-payment-group Consumer가 activateNextBatch() 호출
+  4. queue.activated 발행 → Notification Consumer → Redis Pub/Sub → SSE push
   5. 입장 후 대기열에서 제거 (ZREM)
 ```
 
@@ -307,8 +322,9 @@ Redis Sorted Set
 흐름
   1. 사용자 등록 → ZADD + DB WaitlistEntry 저장
      → 현재 순번(ZRANK + 1) / 전체 대기 수(ZCARD) 즉시 반환
-  2. 예매 취소 발생
+  2. 예매 취소 발생 (REQUIRES_NEW 별도 트랜잭션)
      → ZPOPMIN으로 1순위 userId 추출
+     → DB 조회 실패 시 userId를 ZADD로 복구 (고아 레코드 방지)
      → DB 상태 NOTIFIED 업데이트 (10분 예매 유효)
      → waitlist.notified 발행 → SSE 알림 전송
   3. 대기 취소 → ZREM + DB 상태 CANCELLED
@@ -316,6 +332,7 @@ Redis Sorted Set
 
 - 이탈 시 순번 자동 재계산 (ZSet 특성 활용)
 - DB는 이력 보존용, 실시간 순번은 Redis가 단독 처리
+- `notifyNext()`는 `REQUIRES_NEW`로 호출자 트랜잭션과 분리 → 알림 실패가 예매 취소를 롤백시키지 않음
 
 <br>
 
@@ -343,6 +360,70 @@ A가 res1 → res2 순으로 락, B가 res2 → res1 순으로 락 시도 → �
 
 <br>
 
+## 안정성 설계
+
+### Kafka 발행 신뢰성
+```
+// 기존: 비동기 — DB 커밋 후 Kafka 미발행 상태 가능
+kafkaTemplate.send(...).whenComplete((result, ex) -> { ... });
+
+// 개선: 동기 — 발행 실패 시 즉시 예외 → 호출자 트랜잭션 롤백
+kafkaTemplate.send(...).get(5, TimeUnit.SECONDS);
+```
+
+### Kafka 포이즌 필 처리
+Consumer가 역직렬화 불가 메시지를 받으면 무한 재시도가 발생합니다.
+```java
+catch (JsonProcessingException e) {
+    // 역직렬화 불가 → acknowledge 후 드랍 (포이즌 필 격리)
+    ack.acknowledge();
+} catch (Exception e) {
+    // 그 외 일시적 오류 → DefaultErrorHandler 재시도 위임
+    throw new RuntimeException(e);
+}
+```
+
+### 회로 차단기 (resilience4j)
+Toss API 장애 시 모든 결제 요청이 타임아웃 대기하는 연쇄 장애를 방지합니다.
+```yaml
+resilience4j:
+  circuitbreaker:
+    instances:
+      toss:
+        sliding-window-size: 10
+        failure-rate-threshold: 50      # 실패율 50% 초과 시 OPEN
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 3
+```
+
+### SSE 수평 확장 — Redis Pub/Sub
+단일 서버 인메모리 Emitter 저장 방식의 한계를 Redis Pub/Sub으로 해결합니다.
+```
+기존: 서버 A에 SSE 연결 / Kafka Consumer는 서버 B에서 실행 → push 불가
+
+개선:
+  Kafka Consumer(서버 B) → Redis Publish(notification:{userId})
+  서버 A → PatternTopic("notification:*") Subscribe → SSE push ✅
+```
+
+### Kafka Producer 설정
+```java
+RETRY_BACKOFF_MS_CONFIG = 1000        // 재시도 간격 1초 (즉시 연속 재시도 방지)
+MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION = 5
+ACKS_CONFIG = "all"                   // 메시지 유실 방지
+```
+
+### Redis 연결 풀 (Lettuce)
+```yaml
+spring.data.redis.lettuce.pool:
+  max-active: 20
+  max-idle: 10
+  min-idle: 2
+  max-wait: 1000ms
+```
+
+<br>
+
 ## 부하 테스트 결과 (k6)
 
 로컬 환경(MacBook M2, Docker)에서 k6로 측정한 결과입니다.
@@ -357,7 +438,7 @@ A가 res1 → res2 순으로 락, B가 res2 → res1 순으로 락 시도 → �
 | 총 요청 수 | - | 12,949건 |
 
 **병목 원인**: 좌석마다 구역 정보를 별도 조회하는 N+1 쿼리  
-**해결**: JOIN 쿼리 통합 + Redis `@Cacheable` (TTL 10s) 적용
+**해결**: JOIN FETCH 쿼리 통합 + Redis `@Cacheable` (TTL 10s) + Redis Pipeline TTL 일괄 조회
 
 ### 동시 선점 테스트 — Redis SET NX 원자성 검증
 
@@ -369,24 +450,6 @@ A가 res1 → res2 순으로 락, B가 res2 → res1 순으로 락 시도 → �
 | p95 응답시간 | 1,183ms (로컬 1000-VU 극한 환경) |
 
 > 1,000명이 동일 좌석에 동시 요청해도 **정확히 1명만 선점 성공** — Redis 원자성 검증 완료
-
-<br>
-
-## SSE 알림 — 현재 구조와 한계
-
-현재 `SseEmitterRepository`는 서버 인메모리 `ConcurrentHashMap`에 Emitter를 저장합니다.
-
-```
-단일 서버: Client → notification 서버 SSE 연결 → ConcurrentHashMap[userId] → 이벤트 push ✅
-수평 확장: Client → 서버 A에 연결, Kafka Consumer는 서버 B에서 실행 → push 불가 ❌
-```
-
-**개선 방향**: Redis Pub/Sub으로 서버 간 이벤트를 공유하면 수평 확장 가능
-
-```
-Kafka Consumer(서버 B) → Redis Publish(userId 채널)
-서버 A → Redis Subscribe → 해당 userId SSE push
-```
 
 <br>
 
@@ -443,7 +506,8 @@ cp payment/src/main/resources/application-local.yaml.example payment/src/main/re
 
 주요 테스트:
 - `AuthServiceTest` — 회원가입, 로그인, 토큰 재발급, 로그아웃 (8개)
-- `SeatServiceTest` — 좌석 선점 성공/실패/롤백 (4개)
-- `PaymentServiceTest` — 결제 성공/실패/멱등성 (3개)
+- `SeatServiceTest` — 좌석 선점 성공/실패/롤백/중복방지/해제 (6개)
+- `PaymentServiceTest` — 결제 성공/실패/멱등성/취소 멱등성/Toss실패/역직렬화 (6개)
 - `QueueServiceTest` — 대기열 진입/순번/입장 허가 (12개)
+- `WaitlistServiceTest` — 취소대기 등록/중복/상태조회/이탈/알림/DB실패복구 (7개)
 - `SeatConcurrencyIntegrationTest` — **실제 Redis(Testcontainers)** 동시 선점 원자성 검증 (3개, Docker 없는 환경 자동 skip)
