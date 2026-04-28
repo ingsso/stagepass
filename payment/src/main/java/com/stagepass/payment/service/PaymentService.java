@@ -2,6 +2,7 @@ package com.stagepass.payment.service;
 
 import com.stagepass.domain.payment.Payment;
 import com.stagepass.domain.payment.PaymentRepository;
+import com.stagepass.domain.payment.PaymentStatus;
 import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.infra.kafka.KafkaTopics;
@@ -121,18 +122,28 @@ public class PaymentService {
     }
   }
 
-  // 예매 취소 → 토스 결제 취소
+  // 예매 취소 → 토스 결제 취소 (멱등: 이미 CANCELLED면 재처리 없이 반환)
   @Transactional
   public void cancelPayment(Long reservationId) {
     Payment payment = paymentRepository.findByReservationId(reservationId)
         .orElseThrow(() -> new RuntimeException("결제 정보 없음"));
 
+    if (payment.getStatus() == PaymentStatus.CANCELLED) {
+      log.info("[Payment] 이미 취소된 결제 — 멱등 처리 reservationId={}", reservationId);
+      return;
+    }
+
     if (payment.getTossPaymentKey() != null) {
-      tossPaymentClient.cancel(
-          payment.getTossPaymentKey(),
-          "사용자 예매 취소",
-          payment.getAmount()
-      );
+      try {
+        tossPaymentClient.cancel(
+            payment.getTossPaymentKey(),
+            "사용자 예매 취소",
+            payment.getAmount()
+        );
+      } catch (Exception e) {
+        log.error("[Payment] Toss 취소 API 실패 — 수동 개입 필요 reservationId={}", reservationId, e);
+        throw e; // 재시도 위임 (DB 상태 변경 없이 롤백)
+      }
     }
 
     payment.cancel();

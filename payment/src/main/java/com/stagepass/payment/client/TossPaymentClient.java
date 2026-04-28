@@ -6,8 +6,10 @@ import com.stagepass.payment.dto.TossPaymentResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
+import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
+import org.springframework.web.client.ResourceAccessException;
 import org.springframework.web.client.RestTemplate;
 
 import java.nio.charset.StandardCharsets;
@@ -23,8 +25,11 @@ public class TossPaymentClient {
   private final RestTemplate restTemplate;
   private final String encodedSecretKey;
 
-  public TossPaymentClient(@Value("${toss.secret-key}") String secretKey) {
-    this.restTemplate = new RestTemplate();
+  public TossPaymentClient(
+      @Value("${toss.secret-key}") String secretKey,
+      @Value("${toss.connect-timeout-ms:3000}") int connectTimeoutMs,
+      @Value("${toss.read-timeout-ms:5000}") int readTimeoutMs) {
+    this.restTemplate = new RestTemplate(requestFactory(connectTimeoutMs, readTimeoutMs));
     String raw = secretKey + ":";
     this.encodedSecretKey = Base64.getEncoder()
         .encodeToString(raw.getBytes(StandardCharsets.UTF_8));
@@ -37,6 +42,9 @@ public class TossPaymentClient {
           restTemplate.postForEntity(CONFIRM_URL, entity, TossPaymentResponse.class);
       log.info("[Toss] 결제 승인 성공 orderId={}", request.getOrderId());
       return response.getBody();
+    } catch (ResourceAccessException e) {
+      log.error("[Toss] 결제 승인 네트워크 오류 orderId={}", request.getOrderId(), e);
+      throw new RuntimeException("토스페이먼츠 통신 실패 (타임아웃 또는 네트워크 오류)");
     } catch (HttpClientErrorException e) {
       log.error("[Toss] 결제 승인 실패 orderId={} status={} body={}",
           request.getOrderId(), e.getStatusCode(), e.getResponseBodyAsString());
@@ -52,6 +60,9 @@ public class TossPaymentClient {
           CANCEL_URL, entity, TossPaymentResponse.class, paymentKey);
       log.info("[Toss] 결제 취소 성공 paymentKey={}", paymentKey);
       return response.getBody();
+    } catch (ResourceAccessException e) {
+      log.error("[Toss] 결제 취소 네트워크 오류 paymentKey={}", paymentKey, e);
+      throw new RuntimeException("토스페이먼츠 통신 실패 (타임아웃 또는 네트워크 오류)");
     } catch (HttpClientErrorException e) {
       log.error("[Toss] 결제 취소 실패 paymentKey={} status={} body={}",
           paymentKey, e.getStatusCode(), e.getResponseBodyAsString());
@@ -64,5 +75,12 @@ public class TossPaymentClient {
     headers.setContentType(MediaType.APPLICATION_JSON);
     headers.set("Authorization", "Basic " + encodedSecretKey);
     return headers;
+  }
+
+  private SimpleClientHttpRequestFactory requestFactory(int connectMs, int readMs) {
+    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
+    factory.setConnectTimeout(connectMs);
+    factory.setReadTimeout(readMs);
+    return factory;
   }
 }
