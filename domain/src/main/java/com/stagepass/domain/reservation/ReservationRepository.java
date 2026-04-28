@@ -27,6 +27,8 @@ public interface ReservationRepository extends JpaRepository<Reservation, Long> 
 
   List<Reservation> findByShowId(Long showId);
 
+  boolean existsByUserIdAndShowIdAndStatus(Long userId, Long showId, ReservationStatus status);
+
   // 만료 처리 대상 배치 조회 (스케줄러용) — Pageable로 청크 단위 처리
   @Query("SELECT r FROM Reservation r WHERE r.status = 'PENDING' AND r.expiresAt < :now")
   List<Reservation> findExpiredReservations(@Param("now") LocalDateTime now, Pageable pageable);
