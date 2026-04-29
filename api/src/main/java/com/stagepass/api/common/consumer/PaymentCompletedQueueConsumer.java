@@ -1,5 +1,6 @@
 package com.stagepass.api.common.consumer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stagepass.api.queue.service.QueueService;
 import com.stagepass.domain.queue.QueueEntry;
@@ -47,6 +48,9 @@ public class PaymentCompletedQueueConsumer {
       });
 
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Queue] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge(); // 포이즌 필 — 재처리 없이 offset 커밋
     } catch (Exception e) {
       log.error("[Queue] 결제 완료 큐 처리 실패 message={}", message, e);
       throw new RuntimeException(e);

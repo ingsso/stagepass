@@ -13,6 +13,7 @@ import com.stagepass.domain.user.UserRole;
 import com.stagepass.domain.waitlist.WaitlistEntry;
 import com.stagepass.domain.waitlist.WaitlistRepository;
 import com.stagepass.domain.waitlist.WaitlistStatus;
+import com.stagepass.infra.redis.WaitlistPopResult;
 import com.stagepass.infra.redis.WaitlistRedisRepository;
 import com.stagepass.kafka.event.WaitlistEvent;
 import com.stagepass.kafka.producer.EventPublisher;
@@ -26,12 +27,13 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
-import java.time.LocalDateTime;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyDouble;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -49,6 +51,7 @@ class WaitlistServiceTest {
 
   private static final Long SHOW_ID = 1L;
   private static final Long USER_ID = 10L;
+  private static final double ORIGINAL_SCORE = 1_700_000_000_000.0; // 고정 score 값
 
   private User user;
   private Show show;
@@ -73,6 +76,10 @@ class WaitlistServiceTest {
         .role(UserRole.USER)
         .build();
     ReflectionTestUtils.setField(user, "id", USER_ID);
+  }
+
+  private WaitlistPopResult entry(Long userId, double score) {
+    return new WaitlistPopResult(userId, score);
   }
 
   @Test
@@ -131,7 +138,7 @@ class WaitlistServiceTest {
   @Test
   @DisplayName("notifyNext — 대기자가 없으면 아무것도 하지 않는다")
   void notifyNext_대기자없음() {
-    given(waitlistRedisRepository.popFirst(SHOW_ID)).willReturn(null);
+    given(waitlistRedisRepository.popFirstEntry(SHOW_ID)).willReturn(null);
 
     waitlistService.notifyNext(SHOW_ID);
 
@@ -142,7 +149,7 @@ class WaitlistServiceTest {
   @DisplayName("notifyNext — 첫 번째 대기자를 NOTIFIED 처리하고 Kafka 이벤트 발행")
   void notifyNext_성공() {
     WaitlistEntry entry = WaitlistEntry.builder().show(show).user(user).build();
-    given(waitlistRedisRepository.popFirst(SHOW_ID)).willReturn(USER_ID);
+    given(waitlistRedisRepository.popFirstEntry(SHOW_ID)).willReturn(entry(USER_ID, ORIGINAL_SCORE));
     given(waitlistRepository.findByShowIdAndUserId(SHOW_ID, USER_ID)).willReturn(Optional.of(entry));
 
     waitlistService.notifyNext(SHOW_ID);
@@ -157,15 +164,29 @@ class WaitlistServiceTest {
   }
 
   @Test
-  @DisplayName("notifyNext — DB 실패 시 Redis에 userId 복구")
-  void notifyNext_DB실패시_Redis복구() {
-    given(waitlistRedisRepository.popFirst(SHOW_ID)).willReturn(USER_ID);
+  @DisplayName("notifyNext — DB 실패 시 원래 score로 Redis 복구 (순번 유지)")
+  void notifyNext_DB실패시_원래score로_Redis복구() {
+    given(waitlistRedisRepository.popFirstEntry(SHOW_ID)).willReturn(entry(USER_ID, ORIGINAL_SCORE));
     given(waitlistRepository.findByShowIdAndUserId(SHOW_ID, USER_ID))
         .willThrow(new RuntimeException("DB 장애"));
 
     waitlistService.notifyNext(SHOW_ID);
 
-    then(waitlistRedisRepository).should().add(SHOW_ID, USER_ID);
+    // 원래 score로 복구해야 순번 유지 (add()는 currentTimeMillis → 맨 뒤로 밀림)
+    then(waitlistRedisRepository).should().addWithScore(eq(SHOW_ID), eq(USER_ID), eq(ORIGINAL_SCORE));
     then(eventPublisher).should(never()).publishWaitlistNotified(any());
+  }
+
+  @Test
+  @DisplayName("notifyNext — 손상된 userId 형식은 조용히 스킵")
+  void notifyNext_손상된userId_스킵() {
+    // WaitlistRedisRepository.popFirstEntry 내부에서 Long.parseLong 실패 → null 반환 (Repository 레벨 처리)
+    // WaitlistService는 popFirstEntry가 null을 반환하면 조기 종료
+    given(waitlistRedisRepository.popFirstEntry(SHOW_ID)).willReturn(null);
+
+    waitlistService.notifyNext(SHOW_ID);
+
+    then(eventPublisher).should(never()).publishWaitlistNotified(any());
+    then(waitlistRepository).should(never()).findByShowIdAndUserId(any(), any());
   }
 }

@@ -92,7 +92,7 @@ class ReservationServiceTest {
   void cancel_확정예매_환불이벤트발행() {
     given(reservationRepository.findByIdAndUserId(RESERVATION_ID, USER_ID))
         .willReturn(Optional.of(confirmedReservation));
-    given(reservationSeatRepository.findByReservationId(RESERVATION_ID))
+    given(reservationSeatRepository.findByReservationIdWithSeat(RESERVATION_ID))
         .willReturn(List.of());
 
     reservationService.cancel(RESERVATION_ID, USER_ID);
@@ -110,7 +110,7 @@ class ReservationServiceTest {
   void cancel_미결제예매_환불이벤트미발행() {
     given(reservationRepository.findByIdAndUserId(RESERVATION_ID, USER_ID))
         .willReturn(Optional.of(pendingReservation));
-    given(reservationSeatRepository.findByReservationId(RESERVATION_ID))
+    given(reservationSeatRepository.findByReservationIdWithSeat(RESERVATION_ID))
         .willReturn(List.of());
 
     reservationService.cancel(RESERVATION_ID, USER_ID);

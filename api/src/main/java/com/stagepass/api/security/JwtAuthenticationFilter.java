@@ -57,7 +57,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
       throws IOException {
     response.setStatus(status);
     response.setContentType("application/json;charset=UTF-8");
-    response.getWriter().write("{\"success\":false,\"message\":\"" + message + "\"}");
+    String escaped = message.replace("\\", "\\\\").replace("\"", "\\\"");
+    response.getWriter().write("{\"success\":false,\"message\":\"" + escaped + "\"}");
   }
 
   private String resolveToken(HttpServletRequest request) {

@@ -59,8 +59,8 @@ public class ReservationService {
 
     boolean wasConfirmed = reservation.getStatus() == ReservationStatus.CONFIRMED;
 
-    // Redis 선점 해제
-    reservationSeatRepository.findByReservationId(reservationId)
+    // Redis 선점 해제 — JOIN FETCH로 Seat lazy 로딩 N+1 방지
+    reservationSeatRepository.findByReservationIdWithSeat(reservationId)
         .forEach(rs -> seatRedisRepository.release(rs.getSeat().getId(), userId));
 
     reservation.cancel();

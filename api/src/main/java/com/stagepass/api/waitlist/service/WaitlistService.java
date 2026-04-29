@@ -10,6 +10,7 @@ import com.stagepass.domain.user.UserRepository;
 import com.stagepass.domain.waitlist.WaitlistEntry;
 import com.stagepass.domain.waitlist.WaitlistRepository;
 import com.stagepass.domain.waitlist.WaitlistStatus;
+import com.stagepass.infra.redis.WaitlistPopResult;
 import com.stagepass.infra.redis.WaitlistRedisRepository;
 import com.stagepass.kafka.event.WaitlistEvent;
 import com.stagepass.kafka.producer.EventPublisher;
@@ -84,14 +85,13 @@ public class WaitlistService {
   // REQUIRES_NEW: 호출자 트랜잭션과 분리 → 알림 실패가 예매 취소를 롤백시키지 않음
   @Transactional(propagation = Propagation.REQUIRES_NEW)
   public void notifyNext(Long showId) {
-    Long nextUserId;
-    try {
-      nextUserId = waitlistRedisRepository.popFirst(showId);
-    } catch (IllegalStateException e) {
-      log.error("[Waitlist] 손상된 대기열 항목 감지, 알림 스킵 showId={}", showId, e);
-      return;
-    }
-    if (nextUserId == null) return;
+    // 손상된 데이터 파싱 실패는 Repository에서 null 반환으로 처리
+    WaitlistPopResult popped = waitlistRedisRepository.popFirstEntry(showId);
+    if (popped == null) return;
+
+    Long nextUserId = popped.userId();
+    // 복구 시 원래 score(등록 시각)로 재삽입해야 순번 유지 — add()는 currentTimeMillis → 맨 뒤로 밀림
+    double originalScore = popped.score();
 
     try {
       WaitlistEntry entry = waitlistRepository.findByShowIdAndUserId(showId, nextUserId)
@@ -101,8 +101,8 @@ public class WaitlistService {
       eventPublisher.publishWaitlistNotified(new WaitlistEvent(showId, nextUserId));
       log.info("[Waitlist] 대기자 알림 showId={} userId={}", showId, nextUserId);
     } catch (Exception e) {
-      // DB 업데이트 실패 시 Redis에서 꺼낸 userId를 다시 넣어 대기 순번 복구
-      waitlistRedisRepository.add(showId, nextUserId);
+      // 원래 score로 복구 — add()는 currentTimeMillis를 score로 써서 순번이 소실됨
+      waitlistRedisRepository.addWithScore(showId, nextUserId, originalScore);
       log.error("[Waitlist] 대기자 알림 실패, Redis 복구 showId={} userId={}", showId, nextUserId, e);
     }
   }
