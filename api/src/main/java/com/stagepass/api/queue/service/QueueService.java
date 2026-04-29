@@ -19,7 +19,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 @Slf4j
 @Service
@@ -105,9 +109,18 @@ public class QueueService {
     Set<String> top = queueRedisRepository.getTop(showId, ACTIVATE_BATCH_SIZE);
     if (top == null || top.isEmpty()) return;
 
+    List<Long> userIds = top.stream().map(Long::parseLong).toList();
+
+    // N+1 방지 — IN 절로 한 번에 조회
+    Map<Long, QueueEntry> entryMap = queueEntryRepository.findByShowIdAndUserIdIn(showId, userIds)
+        .stream()
+        .collect(Collectors.toMap(e -> e.getUser().getId(), Function.identity()));
+
     long rank = 1L;
-    for (String userIdStr : top) {
-      activateUser(showId, Long.parseLong(userIdStr), rank++);
+    for (Long userId : userIds) {
+      QueueEntry entry = entryMap.get(userId);
+      if (entry != null) entry.activate();
+      eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, rank++));
     }
 
     log.info("[Queue] 다음 배치 입장 허가 showId={} count={}", showId, top.size());

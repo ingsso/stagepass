@@ -1,6 +1,7 @@
 package com.stagepass.admin.dashboard.service;
 
 import com.stagepass.admin.dashboard.dto.DashboardResponse;
+import com.stagepass.admin.dashboard.dto.DashboardStatsDto;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationStatus;
 import lombok.RequiredArgsConstructor;
@@ -18,21 +19,17 @@ public class DashboardService {
   @Transactional(readOnly = true)
   public DashboardResponse getDashboard() {
     LocalDateTime todayStart = LocalDateTime.now().toLocalDate().atStartOfDay();
-    Object[] s = reservationRepository.getDashboardStats(
+    Object[] raw = reservationRepository.getDashboardStats(
         ReservationStatus.CONFIRMED, ReservationStatus.CANCELLED, todayStart);
 
+    DashboardStatsDto stats = DashboardStatsDto.from(raw);
     return new DashboardResponse(
-        toLong(s[0]),  // total
-        toLong(s[1]),  // confirmed
-        toLong(s[2]),  // cancelled
-        toLong(s[3]),  // revenue
-        toLong(s[4]),  // todayCount
-        toLong(s[5])   // todayRevenue
+        stats.getTotal(),
+        stats.getConfirmed(),
+        stats.getCancelled(),
+        stats.getRevenue(),
+        stats.getTodayCount(),
+        stats.getTodayRevenue()
     );
-  }
-
-  private long toLong(Object value) {
-    if (value == null) return 0L;
-    return ((Number) value).longValue();
   }
 }

@@ -185,6 +185,47 @@ class PaymentServiceTest {
   }
 
   @Test
+  @DisplayName("결제 처리 실패 - 예매 없음 → RuntimeException")
+  void processPayment_예매없음_예외() {
+    // given
+    given(paymentRepository.findByTossOrderId(event.getTossOrderId()))
+        .willReturn(Optional.empty());
+    given(reservationRepository.findById(event.getReservationId()))
+        .willReturn(Optional.empty());
+
+    // when & then
+    assertThatThrownBy(() -> paymentService.processPayment(event))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining(String.valueOf(event.getReservationId()));
+
+    then(tossPaymentClient).should(never()).confirm(any());
+    then(eventPublisher).should(never()).publishPaymentCompleted(any());
+  }
+
+  @Test
+  @DisplayName("결제 처리 실패 - Toss 실패 시 실패 사유가 이벤트에 포함됨")
+  void processPayment_결제실패시_실패사유_이벤트포함() {
+    // given
+    given(paymentRepository.findByTossOrderId(event.getTossOrderId()))
+        .willReturn(Optional.empty());
+    given(reservationRepository.findById(event.getReservationId()))
+        .willReturn(Optional.of(reservation));
+    given(paymentRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+    willThrow(new RuntimeException("카드 한도 초과"))
+        .given(tossPaymentClient).confirm(any());
+
+    // when
+    paymentService.processPayment(event);
+
+    // then: 실패 이벤트가 발행되며 실패 사유가 null이 아님
+    then(eventPublisher).should().publishPaymentFailed(
+        org.mockito.ArgumentMatchers.argThat(e ->
+            e.getReason() != null && e.getReason().contains("카드 한도 초과")
+        )
+    );
+  }
+
+  @Test
   @DisplayName("취소 요청 Consumer — 역직렬화 실패 시 RuntimeException으로 재시도 위임")
   void handlePaymentCancelRequested_역직렬화실패_재시도위임() throws Exception {
     given(objectMapper.readValue("bad-json", PaymentCancelEvent.class))

@@ -27,12 +27,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -245,8 +247,8 @@ class QueueServiceTest {
     // given
     given(queueRedisRepository.getTop(SHOW_ID, 10))
         .willReturn(Set.of("101", "102", "103"));
-    given(queueEntryRepository.findByShowIdAndUserId(any(), any()))
-        .willReturn(Optional.empty());
+    given(queueEntryRepository.findByShowIdAndUserIdIn(eq(SHOW_ID), any()))
+        .willReturn(List.of()); // DB 엔트리 없어도 이벤트는 발행됨
 
     // when
     queueService.activateNextBatch(SHOW_ID);
@@ -297,8 +299,8 @@ class QueueServiceTest {
     given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, USER_ID))
         .willReturn(Optional.of(entry));
     given(queueRedisRepository.getTop(SHOW_ID, 10)).willReturn(Set.of("200"));
-    given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, 200L))
-        .willReturn(Optional.empty());
+    given(queueEntryRepository.findByShowIdAndUserIdIn(eq(SHOW_ID), any()))
+        .willReturn(List.of());
 
     // when
     queueService.leave(SHOW_ID, USER_ID);

@@ -1,5 +1,6 @@
 package com.stagepass.api.security;
 
+import com.stagepass.common.exception.BusinessException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,20 +28,36 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                                   FilterChain filterChain) throws ServletException, IOException {
     String token = resolveToken(request);
 
-    if (StringUtils.hasText(token) && jwtProvider.validate(token)) {
-      Long userId = jwtProvider.getUserId(token);
-      String role = jwtProvider.getRole(token);
+    if (StringUtils.hasText(token)) {
+      try {
+        if (jwtProvider.validate(token)) {
+          Long userId = jwtProvider.getUserId(token);
+          String role = jwtProvider.getRole(token);
 
-      UsernamePasswordAuthenticationToken auth =
-          new UsernamePasswordAuthenticationToken(
-              userId,
-              null,
-              List.of(new SimpleGrantedAuthority("ROLE_" + role))
-          );
-      SecurityContextHolder.getContext().setAuthentication(auth);
+          UsernamePasswordAuthenticationToken auth =
+              new UsernamePasswordAuthenticationToken(
+                  userId,
+                  null,
+                  List.of(new SimpleGrantedAuthority("ROLE_" + role))
+              );
+          SecurityContextHolder.getContext().setAuthentication(auth);
+        }
+      } catch (BusinessException e) {
+        // @RestControllerAdvice는 필터 계층 예외를 처리하지 못하므로 여기서 직접 응답 작성
+        log.warn("[JWT] 토큰 검증 실패 - {}", e.getMessage());
+        sendErrorResponse(response, e.getErrorCode().getStatus().value(), e.getMessage());
+        return;
+      }
     }
 
     filterChain.doFilter(request, response);
+  }
+
+  private void sendErrorResponse(HttpServletResponse response, int status, String message)
+      throws IOException {
+    response.setStatus(status);
+    response.setContentType("application/json;charset=UTF-8");
+    response.getWriter().write("{\"success\":false,\"message\":\"" + message + "\"}");
   }
 
   private String resolveToken(HttpServletRequest request) {

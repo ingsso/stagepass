@@ -10,6 +10,6 @@ public interface PerformanceRepository extends JpaRepository<Performance, Long> 
 
   Page<Performance> findAll(Pageable pageable);
 
-  @Query("SELECT p FROM Performance p WHERE p.title LIKE %:keyword%")
+  @Query("SELECT p FROM Performance p WHERE p.title LIKE CONCAT(:keyword, '%')")
   Page<Performance> searchByTitle(@Param("keyword") String keyword, Pageable pageable);
 }

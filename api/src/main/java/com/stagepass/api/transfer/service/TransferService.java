@@ -105,6 +105,11 @@ public class TransferService {
     }
 
     try {
+      // 락 획득 후 예매 상태 재확인 — 락 대기 중 예매가 취소/만료됐을 수 있음
+      if (transfer.getReservation().getStatus() != ReservationStatus.CONFIRMED) {
+        throw new BusinessException(ErrorCode.RESERVATION_NOT_CONFIRMED);
+      }
+
       User toUser = userRepository.findById(userId)
           .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
