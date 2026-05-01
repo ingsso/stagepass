@@ -311,6 +311,32 @@ class SeatExchangeServiceTest {
   }
 
   @Test
+  @DisplayName("교환 수락 — 락 획득 후 예매가 CONFIRMED 아니면 RESERVATION_NOT_CONFIRMED 예외")
+  void accept_락획득후_예매취소됨_실패() {
+    Long exchangeId = 1L;
+    Reservation cancelledReservation = Reservation.builder()
+        .user(proposer).show(show).totalPrice(50000).build();
+    ReflectionTestUtils.setField(cancelledReservation, "id", MY_RES_ID);
+    ReflectionTestUtils.setField(cancelledReservation, "status", ReservationStatus.CANCELLED);
+
+    SeatExchange exchange = SeatExchange.builder()
+        .proposer(proposer).receiver(receiver)
+        .proposerReservation(cancelledReservation).receiverReservation(targetReservation)
+        .build();
+    ReflectionTestUtils.setField(exchange, "id", exchangeId);
+
+    given(exchangeRepository.findByIdWithDetails(exchangeId)).willReturn(Optional.of(exchange));
+    given(reservationRepository.findByIdWithLock(MY_RES_ID)).willReturn(Optional.of(cancelledReservation));
+    given(reservationRepository.findByIdWithLock(TARGET_RES_ID)).willReturn(Optional.of(targetReservation));
+
+    assertThatThrownBy(() -> exchangeService.accept(exchangeId, RECEIVER_ID))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining(ErrorCode.RESERVATION_NOT_CONFIRMED.getMessage());
+
+    then(eventPublisher).should(org.mockito.Mockito.never()).publishExchangeCompleted(any());
+  }
+
+  @Test
   @DisplayName("교환 수락 — 비관적 락은 항상 작은 예매 ID 먼저 획득 (데드락 방지)")
   void accept_비관적락_순서_데드락방지() {
     // proposerReservation.id(10) < receiverReservation.id(20) — 작은 ID가 먼저여야 함
@@ -343,10 +369,12 @@ class SeatExchangeServiceTest {
     Reservation largeIdRes = Reservation.builder()
         .user(proposer).show(show).totalPrice(50000).build();
     ReflectionTestUtils.setField(largeIdRes, "id", TARGET_RES_ID); // 20
+    ReflectionTestUtils.setField(largeIdRes, "status", ReservationStatus.CONFIRMED);
 
     Reservation smallIdRes = Reservation.builder()
         .user(receiver).show(show).totalPrice(50000).build();
     ReflectionTestUtils.setField(smallIdRes, "id", MY_RES_ID); // 10
+    ReflectionTestUtils.setField(smallIdRes, "status", ReservationStatus.CONFIRMED);
 
     SeatExchange exchange = SeatExchange.builder()
         .proposer(proposer).receiver(receiver)

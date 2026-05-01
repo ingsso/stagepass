@@ -120,6 +120,11 @@ public class SeatExchangeService {
     Reservation res2 = reservationRepository.findByIdWithLock(id2)
         .orElseThrow(() -> new BusinessException(ErrorCode.RESERVATION_NOT_FOUND));
 
+    // 락 대기 중 한쪽이 취소/만료됐을 수 있으므로 재확인
+    if (res1.getStatus() != ReservationStatus.CONFIRMED || res2.getStatus() != ReservationStatus.CONFIRMED) {
+      throw new BusinessException(ErrorCode.RESERVATION_NOT_CONFIRMED);
+    }
+
     // 소유자 스왑
     User proposer = exchange.getProposer();
     User receiver = exchange.getReceiver();

@@ -61,7 +61,10 @@ public class ReservationExpiryBatchProcessor {
 
       queueEntryRepository.findByShowIdAndUserId(showId, userId)
           .filter(e -> e.getStatus() == QueueStatus.ACTIVATED)
-          .ifPresent(e -> queueService.activateNextBatch(showId));
+          .ifPresent(e -> {
+            queueEntryRepository.delete(e);
+            queueService.activateNextBatch(showId);
+          });
 
       waitlistService.notifyNext(showId);
 

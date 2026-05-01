@@ -194,6 +194,30 @@ class TransferServiceTest {
   }
 
   @Test
+  @DisplayName("양도 수락 — 락 획득 후 예매가 CONFIRMED 아니면 RESERVATION_NOT_CONFIRMED 예외 + 락 해제")
+  void claim_락획득후_예매취소됨_실패() {
+    Reservation cancelledReservation = Reservation.builder()
+        .user(fromUser).show(futureShow).totalPrice(50000).build();
+    ReflectionTestUtils.setField(cancelledReservation, "id", RESERVATION_ID);
+    ReflectionTestUtils.setField(cancelledReservation, "status", ReservationStatus.CANCELLED);
+
+    Transfer transfer = Transfer.builder()
+        .reservation(cancelledReservation).fromUser(fromUser)
+        .expiresAt(futureShow.getShowDatetime()).build();
+    ReflectionTestUtils.setField(transfer, "id", TRANSFER_ID);
+
+    given(transferRepository.findById(TRANSFER_ID)).willReturn(Optional.of(transfer));
+    given(transferRedisRepository.claim(TRANSFER_ID, TO_USER_ID)).willReturn(true);
+
+    assertThatThrownBy(() -> transferService.claim(TRANSFER_ID, TO_USER_ID))
+        .isInstanceOf(BusinessException.class)
+        .hasMessageContaining(ErrorCode.RESERVATION_NOT_CONFIRMED.getMessage());
+
+    then(transferRedisRepository).should().release(TRANSFER_ID);
+    then(eventPublisher).should(never()).publishTransferClaimed(any());
+  }
+
+  @Test
   @DisplayName("양도 취소 — OPEN 상태가 아니면 실패")
   void cancel_OPEN아님_실패() {
     Transfer transfer = Transfer.builder()
