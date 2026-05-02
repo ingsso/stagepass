@@ -10,10 +10,12 @@ import lombok.*;
 import java.time.LocalDateTime;
 
 @Entity
-@Table(name = "queue_entries", indexes = {
-    @Index(name = "idx_queue_entries_show_id_status", columnList = "show_id, status"),
-    @Index(name = "idx_queue_entries_show_id_user_id", columnList = "show_id, user_id")
-})
+@Table(name = "queue_entries",
+    uniqueConstraints = @UniqueConstraint(columnNames = {"show_id", "user_id"}),
+    indexes = {
+        @Index(name = "idx_queue_entries_show_id_status", columnList = "show_id, status"),
+        @Index(name = "idx_queue_entries_show_id_user_id", columnList = "show_id, user_id")
+    })
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class QueueEntry extends BaseEntity {

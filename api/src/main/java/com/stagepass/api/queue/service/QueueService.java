@@ -54,19 +54,19 @@ public class QueueService {
       return new QueueEnterResponse(existingRank, total, false);
     }
 
-    // Redis Sorted Set 진입
-    queueRedisRepository.enter(showId, userId);
-    Long rank = queueRedisRepository.getRank(showId, userId);
-    Long total = queueRedisRepository.getSize(showId);
-
-    // DB 기록
+    // DB 먼저 저장 — 실패 시 Redis 진입하지 않아 orphan 방지
     queueEntryRepository.save(
         QueueEntry.builder()
             .show(showRepository.getReferenceById(showId))
             .user(user)
-            .rank(rank != null ? rank.intValue() : 0)
+            .rank(0)  // Redis 진입 전이라 임시값; 실제 순번은 Redis rank 기준
             .build()
     );
+
+    // DB 저장 성공 후 Redis 진입
+    queueRedisRepository.enter(showId, userId);
+    Long rank = queueRedisRepository.getRank(showId, userId);
+    Long total = queueRedisRepository.getSize(showId);
 
     // Kafka 진입 이벤트 발행
     eventPublisher.publishQueueEntered(new QueueEvent(showId, userId, rank));

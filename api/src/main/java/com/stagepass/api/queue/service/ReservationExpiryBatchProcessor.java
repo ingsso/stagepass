@@ -17,7 +17,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @Component
@@ -39,6 +41,8 @@ public class ReservationExpiryBatchProcessor {
   public List<Reservation> processNextBatch() {
     List<Reservation> expired = reservationRepository.findExpiredReservations(
         LocalDateTime.now(), PageRequest.of(0, BATCH_SIZE));
+
+    Set<Long> showIdsNeedingActivation = new LinkedHashSet<>();
 
     for (Reservation reservation : expired) {
       reservation.expire();
@@ -63,7 +67,7 @@ public class ReservationExpiryBatchProcessor {
           .filter(e -> e.getStatus() == QueueStatus.ACTIVATED)
           .ifPresent(e -> {
             queueEntryRepository.delete(e);
-            queueService.activateNextBatch(showId);
+            showIdsNeedingActivation.add(showId);
           });
 
       waitlistService.notifyNext(showId);
@@ -74,6 +78,9 @@ public class ReservationExpiryBatchProcessor {
 
       log.info("[Scheduler] 예매 만료 처리 reservationId={}", reservation.getId());
     }
+
+    // showId당 1회만 호출 — 같은 회차 여러 예매 만료 시 중복 호출 방지
+    showIdsNeedingActivation.forEach(queueService::activateNextBatch);
 
     return expired;
   }
