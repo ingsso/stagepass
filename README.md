@@ -505,9 +505,15 @@ cp payment/src/main/resources/application-local.yaml.example payment/src/main/re
 ```
 
 주요 테스트:
-- `AuthServiceTest` — 회원가입, 로그인, 토큰 재발급, 로그아웃 (8개)
+- `AuthServiceTest` — 회원가입, 로그인, 토큰 재발급, 로그아웃 (9개)
 - `SeatServiceTest` — 좌석 선점 성공/실패/롤백/중복방지/해제 (6개)
-- `PaymentServiceTest` — 결제 성공/실패/멱등성/취소 멱등성/Toss실패/역직렬화 (6개)
-- `QueueServiceTest` — 대기열 진입/순번/입장 허가 (12개)
-- `WaitlistServiceTest` — 취소대기 등록/중복/상태조회/이탈/알림/DB실패복구 (7개)
-- `SeatConcurrencyIntegrationTest` — **실제 Redis(Testcontainers)** 동시 선점 원자성 검증 (3개, Docker 없는 환경 자동 skip)
+- `SeatExchangeServiceTest` — 교환 제안/수락/거절/취소/데드락방지/락후재검증 (15개)
+- `PaymentServiceTest` — 결제 성공/실패/멱등성/취소 멱등성/Toss실패/역직렬화 (8개)
+- `PaymentCompletedQueueConsumerTest` — 결제완료 큐 활성화/포이즌필/예외 (4개)
+- `PaymentFailureConsumerTest` — 결제실패 대기알림/포이즌필/예외 (4개)
+- `QueueServiceTest` — 대기열 진입/순번/입장 허가/퇴장 (12개)
+- `ReservationExpirySchedulerTest` — 만료 배치처리/큐엔트리삭제/스케줄러 (5개)
+- `ReservationServiceTest` — 예매 취소/환불이벤트/권한 (3개)
+- `TransferServiceTest` — 양도 등록/수락/취소/락후재검증 (8개)
+- `WaitlistServiceTest` — 취소대기 등록/중복/상태조회/이탈/알림/DB실패복구 (8개)
+- `SeatConcurrencyIntegrationTest` — **실제 Redis(Testcontainers)** 동시 선점 원자성 검증 (5개, Docker 없는 환경 자동 skip)
