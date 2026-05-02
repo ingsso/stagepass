@@ -1,5 +1,6 @@
 package com.stagepass.api.common.consumer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.domain.reservation.Reservation;
@@ -35,6 +36,9 @@ public class PaymentFailureConsumer {
           .ifPresent(show -> waitlistService.notifyNext(show.getId()));
 
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Waitlist] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge(); // 포이즌 필 — 재처리 없이 offset 커밋
     } catch (Exception e) {
       log.error("[Waitlist] 결제 실패 대기열 알림 처리 실패 message={}", message, e);
       throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임

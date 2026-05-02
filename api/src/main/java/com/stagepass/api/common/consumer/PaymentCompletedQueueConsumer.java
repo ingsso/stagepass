@@ -36,16 +36,19 @@ public class PaymentCompletedQueueConsumer {
     try {
       PaymentResultEvent event = objectMapper.readValue(message, PaymentResultEvent.class);
 
-      reservationRepository.findById(event.getReservationId()).ifPresent(reservation -> {
-        Long showId = reservation.getShow().getId();
-        Long userId = event.getUserId();
+      reservationRepository.findById(event.getReservationId()).ifPresentOrElse(
+          reservation -> {
+            Long showId = reservation.getShow().getId();
+            Long userId = event.getUserId();
 
-        Optional<QueueEntry> entry = queueEntryRepository.findByShowIdAndUserId(showId, userId);
-        if (entry.isPresent() && entry.get().getStatus() == QueueStatus.ACTIVATED) {
-          queueService.activateNextBatch(showId);
-          log.info("[Queue] 결제 완료 후 다음 배치 활성화 showId={} userId={}", showId, userId);
-        }
-      });
+            Optional<QueueEntry> entry = queueEntryRepository.findByShowIdAndUserId(showId, userId);
+            if (entry.isPresent() && entry.get().getStatus() == QueueStatus.ACTIVATED) {
+              queueService.activateNextBatch(showId);
+              log.info("[Queue] 결제 완료 후 다음 배치 활성화 showId={} userId={}", showId, userId);
+            }
+          },
+          () -> log.warn("[Queue] 결제 완료 이벤트 수신했으나 예매 없음 — 이상 징후 reservationId={}", event.getReservationId())
+      );
 
       ack.acknowledge();
     } catch (JsonProcessingException e) {

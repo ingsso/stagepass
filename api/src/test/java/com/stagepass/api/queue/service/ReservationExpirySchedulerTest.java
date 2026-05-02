@@ -4,7 +4,9 @@ import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.domain.performance.Performance;
 import com.stagepass.domain.performance.Show;
 import com.stagepass.domain.performance.ShowStatus;
+import com.stagepass.domain.queue.QueueEntry;
 import com.stagepass.domain.queue.QueueEntryRepository;
+import com.stagepass.domain.queue.QueueStatus;
 import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationSeatRepository;
@@ -94,6 +96,27 @@ class ReservationExpirySchedulerTest {
       assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
       then(eventPublisher).should().publishNotification(any(NotificationEvent.class));
       then(waitlistService).should().notifyNext(100L);
+    }
+
+    @Test
+    @DisplayName("processNextBatch — ACTIVATED 큐 엔트리 삭제 후 다음 배치 활성화")
+    void processNextBatch_ACTIVATED_큐엔트리_삭제_후_다음배치_활성화() {
+      Reservation reservation = Reservation.builder().user(user).show(show).totalPrice(50000).build();
+      ReflectionTestUtils.setField(reservation, "id", 10L);
+
+      QueueEntry activatedEntry = QueueEntry.builder().show(show).user(user).rank(1).build();
+      ReflectionTestUtils.setField(activatedEntry, "status", QueueStatus.ACTIVATED);
+
+      given(reservationRepository.findExpiredReservations(any(), any(Pageable.class)))
+          .willReturn(List.of(reservation));
+      given(reservationSeatRepository.findByReservationIdWithSeat(10L)).willReturn(List.of());
+      given(queueEntryRepository.findByShowIdAndUserId(100L, 1L))
+          .willReturn(Optional.of(activatedEntry));
+
+      batchProcessor.processNextBatch();
+
+      then(queueEntryRepository).should().delete(activatedEntry);
+      then(queueService).should().activateNextBatch(100L);
     }
 
     @Test

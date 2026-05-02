@@ -20,9 +20,11 @@ import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stagepass.kafka.event.PaymentCancelEvent;
 import com.stagepass.kafka.event.PaymentRequestedEvent;
+import org.springframework.dao.DataIntegrityViolationException;
 
 @Slf4j
 @Service
@@ -45,6 +47,13 @@ public class PaymentService {
       log.info("[Saga] 결제 요청 수신 reservationId={}", event.getReservationId());
 
       processPayment(event);
+      ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Saga] 결제 요청 역직렬화 실패 (포이즌 필) message={}", message, e);
+      ack.acknowledge();
+    } catch (DataIntegrityViolationException e) {
+      // 멱등성 체크 통과 후 동시 요청이 unique 위반 — 중복 처리로 간주하고 ack
+      log.warn("[Saga] 중복 결제 감지 (DB unique 위반) — 멱등 처리 message={}", message);
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Saga] 결제 요청 처리 실패 message={}", message, e);
@@ -115,6 +124,9 @@ public class PaymentService {
       PaymentCancelEvent event = objectMapper.readValue(message, PaymentCancelEvent.class);
       log.info("[Saga] 환불 요청 수신 reservationId={}", event.getReservationId());
       cancelPayment(event.getReservationId());
+      ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Saga] 환불 요청 역직렬화 실패 (포이즌 필) message={}", message, e);
       ack.acknowledge();
     } catch (Exception e) {
       log.error("[Saga] 환불 처리 실패 message={}", message, e);

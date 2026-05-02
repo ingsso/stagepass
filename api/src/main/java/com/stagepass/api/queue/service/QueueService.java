@@ -119,6 +119,10 @@ public class QueueService {
     long rank = 1L;
     for (Long userId : userIds) {
       QueueEntry entry = entryMap.get(userId);
+      if (entry != null && entry.getStatus() == QueueStatus.ACTIVATED) {
+        rank++;
+        continue; // 이미 활성화됨 — 중복 이벤트 방지
+      }
       if (entry != null) entry.activate();
       eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, rank++));
     }
