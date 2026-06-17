@@ -60,7 +60,7 @@ public class TransferService {
         .build();
 
     transferRepository.save(transfer);
-    log.info("[Transfer] 양도 등록 reservationId={} userId={}", reservation.getId(), userId);
+    log.info("[Transfer] created reservationId={} userId={}", reservation.getId(), userId);
     return new TransferResponse(transfer);
   }
 
@@ -124,11 +124,11 @@ public class TransferService {
           new NotificationEvent(
               transfer.getFromUser().getId(),
               "TRANSFER_CLAIMED",
-              "회원님의 티켓이 양도되었습니다."
+              "Your ticket has been transferred."
           )
       );
 
-      log.info("[Transfer] 양도 완료 transferId={} fromUser={} toUser={}",
+      log.info("[Transfer] claimed transferId={} fromUser={} toUser={}",
           transferId, transfer.getFromUser().getId(), userId);
       return new TransferResponse(transfer);
 
@@ -149,6 +149,6 @@ public class TransferService {
     }
 
     transfer.cancel();
-    log.info("[Transfer] 양도 취소 transferId={} userId={}", transferId, userId);
+    log.info("[Transfer] cancelled transferId={} userId={}", transferId, userId);
   }
 }

@@ -83,6 +83,6 @@ public class ReservationService {
         .filter(e -> e.getStatus() == QueueStatus.ACTIVATED)
         .ifPresent(e -> queueService.activateNextBatch(showId));
 
-    log.info("[Reservation] 예매 취소 reservationId={} userId={}", reservationId, userId);
+    log.info("[Reservation] cancelled reservationId={} userId={}", reservationId, userId);
   }
 }

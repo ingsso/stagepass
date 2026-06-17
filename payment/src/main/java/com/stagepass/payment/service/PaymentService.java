@@ -44,19 +44,19 @@ public class PaymentService {
     try {
       PaymentRequestedEvent event =
           objectMapper.readValue(message, PaymentRequestedEvent.class);
-      log.info("[Saga] 결제 요청 수신 reservationId={}", event.getReservationId());
+      log.info("[Saga] payment request received reservationId={}", event.getReservationId());
 
       processPayment(event);
       ack.acknowledge();
     } catch (JsonProcessingException e) {
-      log.error("[Saga] 결제 요청 역직렬화 실패 (포이즌 필) message={}", message, e);
+      log.error("[Saga] payment request deserialization failed (poison pill) message={}", message, e);
       ack.acknowledge();
     } catch (DataIntegrityViolationException e) {
       // 멱등성 체크 통과 후 동시 요청이 unique 위반 — 중복 처리로 간주하고 ack
-      log.warn("[Saga] 중복 결제 감지 (DB unique 위반) — 멱등 처리 message={}", message);
+      log.warn("[Saga] duplicate payment detected (DB unique violation) - idempotent skip message={}", message);
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Saga] 결제 요청 처리 실패 message={}", message, e);
+      log.error("[Saga] payment request processing failed message={}", message, e);
       throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
@@ -65,12 +65,12 @@ public class PaymentService {
   public void processPayment(PaymentRequestedEvent event) {
     // 1. 멱등성 체크 — 동일 orderId 중복 결제 방지
     if (paymentRepository.findByTossOrderId(event.getTossOrderId()).isPresent()) {
-      log.warn("[Saga] 중복 결제 요청 무시 orderId={}", event.getTossOrderId());
+      log.warn("[Saga] duplicate payment ignored orderId={}", event.getTossOrderId());
       return;
     }
 
     Reservation reservation = reservationRepository.findById(event.getReservationId())
-        .orElseThrow(() -> new RuntimeException("예매 없음: " + event.getReservationId()));
+        .orElseThrow(() -> new RuntimeException("Reservation not found: " + event.getReservationId()));
 
     // 2. Payment 레코드 생성 (PENDING)
     Payment payment = Payment.builder()
@@ -100,7 +100,7 @@ public class PaymentService {
               null
           )
       );
-      log.info("[Saga] 결제 완료 reservationId={}", event.getReservationId());
+      log.info("[Saga] payment completed reservationId={}", event.getReservationId());
 
     } catch (Exception e) {
       // 5. 실패 → payment.failed 발행 (보상 트랜잭션 트리거)
@@ -113,7 +113,7 @@ public class PaymentService {
               e.getMessage()
           )
       );
-      log.error("[Saga] 결제 실패 reservationId={} reason={}", event.getReservationId(), e.getMessage());
+      log.error("[Saga] payment failed reservationId={} reason={}", event.getReservationId(), e.getMessage());
     }
   }
 
@@ -122,14 +122,14 @@ public class PaymentService {
   public void handlePaymentCancelRequested(String message, Acknowledgment ack) {
     try {
       PaymentCancelEvent event = objectMapper.readValue(message, PaymentCancelEvent.class);
-      log.info("[Saga] 환불 요청 수신 reservationId={}", event.getReservationId());
+      log.info("[Saga] refund request received reservationId={}", event.getReservationId());
       cancelPayment(event.getReservationId());
       ack.acknowledge();
     } catch (JsonProcessingException e) {
-      log.error("[Saga] 환불 요청 역직렬화 실패 (포이즌 필) message={}", message, e);
+      log.error("[Saga] refund request deserialization failed (poison pill) message={}", message, e);
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Saga] 환불 처리 실패 message={}", message, e);
+      log.error("[Saga] refund processing failed message={}", message, e);
       throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
@@ -141,7 +141,7 @@ public class PaymentService {
         .orElseThrow(() -> new RuntimeException("결제 정보 없음"));
 
     if (payment.getStatus() == PaymentStatus.CANCELLED) {
-      log.info("[Payment] 이미 취소된 결제 — 멱등 처리 reservationId={}", reservationId);
+      log.info("[Payment] already cancelled - idempotent skip reservationId={}", reservationId);
       return;
     }
 
@@ -153,12 +153,12 @@ public class PaymentService {
             payment.getAmount()
         );
       } catch (Exception e) {
-        log.error("[Payment] Toss 취소 API 실패 — 수동 개입 필요 reservationId={}", reservationId, e);
+        log.error("[Payment] Toss cancel API failed - manual intervention required reservationId={}", reservationId, e);
         throw e; // 재시도 위임 (DB 상태 변경 없이 롤백)
       }
     }
 
     payment.cancel();
-    log.info("[Payment] 결제 취소 완료 reservationId={}", reservationId);
+    log.info("[Payment] payment cancelled reservationId={}", reservationId);
   }
 }

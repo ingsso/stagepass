@@ -47,11 +47,19 @@ public class QueueService {
     User user = userRepository.findById(userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-    // 이미 대기열에 있으면 현재 순번 반환
+    // Redis에 이미 있으면 현재 순번 반환
     Long existingRank = queueRedisRepository.getRank(showId, userId);
     if (existingRank != null) {
       Long total = queueRedisRepository.getSize(showId);
       return new QueueEnterResponse(existingRank, total, false);
+    }
+
+    // DB에 이미 있으면 Redis 재등록 (Redis flush 등으로 인한 DB-Redis 불일치 복구)
+    if (queueEntryRepository.findByShowIdAndUserId(showId, userId).isPresent()) {
+      queueRedisRepository.enter(showId, userId);
+      Long rank = queueRedisRepository.getRank(showId, userId);
+      Long total = queueRedisRepository.getSize(showId);
+      return new QueueEnterResponse(rank != null ? rank : 0L, total != null ? total : 0L, false);
     }
 
     // DB 먼저 저장 — 실패 시 Redis 진입하지 않아 orphan 방지
@@ -77,7 +85,7 @@ public class QueueService {
       activateUser(showId, userId, rank);
     }
 
-    log.info("[Queue] 대기열 진입 showId={} userId={} rank={}", showId, userId, rank);
+    log.info("[Queue] entered showId={} userId={} rank={}", showId, userId, rank);
     return new QueueEnterResponse(rank != null ? rank : 0L, total != null ? total : 0L, activated);
   }
 
@@ -127,7 +135,7 @@ public class QueueService {
       eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, rank++));
     }
 
-    log.info("[Queue] 다음 배치 입장 허가 showId={} count={}", showId, top.size());
+    log.info("[Queue] next batch activated showId={} count={}", showId, top.size());
   }
 
   // 대기열 퇴장 (입장 후 or 취소)
@@ -141,7 +149,7 @@ public class QueueService {
             activateNextBatch(showId);
           }
         });
-    log.info("[Queue] 대기열 퇴장 showId={} userId={}", showId, userId);
+    log.info("[Queue] left showId={} userId={}", showId, userId);
   }
 
   private void activateUser(Long showId, Long userId, Long rank) {
@@ -150,9 +158,9 @@ public class QueueService {
             entry -> {
               entry.activate();
               eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, rank));
-              log.info("[Queue] 입장 허가 showId={} userId={}", showId, userId);
+              log.info("[Queue] activated showId={} userId={}", showId, userId);
             },
-            () -> log.warn("[Queue] 입장 허가 스킵 — DB 엔트리 없음 showId={} userId={}", showId, userId)
+            () -> log.warn("[Queue] activation skipped - DB entry not found showId={} userId={}", showId, userId)
         );
   }
 }

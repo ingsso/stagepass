@@ -79,7 +79,7 @@ public class ApiPaymentService {
 
     pendingPaymentRepository.delete(request.getOrderId()); // 사용 완료 후 제거
 
-    log.info("[Payment] 결제 요청 발행 reservationId={} orderId={}",
+    log.info("[Payment] payment request published reservationId={} orderId={}",
         reservation.getId(), request.getOrderId());
   }
 

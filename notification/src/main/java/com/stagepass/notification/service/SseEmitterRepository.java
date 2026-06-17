@@ -19,7 +19,7 @@ public class SseEmitterRepository {
 
   public void save(Long userId, SseEmitter emitter) {
     emitters.computeIfAbsent(userId, k -> new CopyOnWriteArrayList<>()).add(emitter);
-    log.debug("[SSE] 연결 저장 userId={} 연결 수={}", userId, emitters.get(userId).size());
+    log.debug("[SSE] emitter saved userId={} count={}", userId, emitters.get(userId).size());
   }
 
   public List<SseEmitter> findAllByUserId(Long userId) {
@@ -33,13 +33,13 @@ public class SseEmitterRepository {
       list.remove(emitter);
       if (list.isEmpty()) emitters.remove(userId);
     }
-    log.debug("[SSE] 연결 제거 userId={}", userId);
+    log.debug("[SSE] emitter removed userId={}", userId);
   }
 
   // 유저의 모든 연결 제거 (로그아웃 등)
   public void deleteAll(Long userId) {
     emitters.remove(userId);
-    log.debug("[SSE] 전체 연결 제거 userId={}", userId);
+    log.debug("[SSE] all emitters removed userId={}", userId);
   }
 
   public boolean exists(Long userId) {

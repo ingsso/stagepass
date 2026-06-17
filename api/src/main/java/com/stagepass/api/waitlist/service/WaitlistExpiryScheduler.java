@@ -30,6 +30,6 @@ public class WaitlistExpiryScheduler {
     if (expired.isEmpty()) return;
 
     expired.forEach(WaitlistEntry::expire);
-    log.info("[Scheduler] 취소 대기 만료 처리 count={}", expired.size());
+    log.info("[Scheduler] waitlist entries expired count={}", expired.size());
   }
 }

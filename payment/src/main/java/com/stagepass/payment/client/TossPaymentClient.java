@@ -42,15 +42,15 @@ public class TossPaymentClient {
     try {
       ResponseEntity<TossPaymentResponse> response =
           restTemplate.postForEntity(CONFIRM_URL, entity, TossPaymentResponse.class);
-      log.info("[Toss] 결제 승인 성공 orderId={}", request.getOrderId());
+      log.info("[Toss] payment confirmed orderId={}", request.getOrderId());
       return response.getBody();
     } catch (ResourceAccessException e) {
-      log.error("[Toss] 결제 승인 네트워크 오류 orderId={}", request.getOrderId(), e);
-      throw new RuntimeException("토스페이먼츠 통신 실패 (타임아웃 또는 네트워크 오류)");
+      log.error("[Toss] payment confirm network error orderId={}", request.getOrderId(), e);
+      throw new RuntimeException("TossPayments communication failed (timeout or network error)");
     } catch (HttpClientErrorException e) {
-      log.error("[Toss] 결제 승인 실패 orderId={} status={} body={}",
+      log.error("[Toss] payment confirm failed orderId={} status={} body={}",
           request.getOrderId(), e.getStatusCode(), e.getResponseBodyAsString());
-      throw new RuntimeException("토스페이먼츠 결제 승인 실패: " + e.getResponseBodyAsString());
+      throw new RuntimeException("TossPayments payment confirm failed: " + e.getResponseBodyAsString());
     }
   }
 
@@ -61,15 +61,15 @@ public class TossPaymentClient {
     try {
       ResponseEntity<TossPaymentResponse> response = restTemplate.postForEntity(
           CANCEL_URL, entity, TossPaymentResponse.class, paymentKey);
-      log.info("[Toss] 결제 취소 성공 paymentKey={}", paymentKey);
+      log.info("[Toss] payment cancel success paymentKey={}", paymentKey);
       return response.getBody();
     } catch (ResourceAccessException e) {
-      log.error("[Toss] 결제 취소 네트워크 오류 paymentKey={}", paymentKey, e);
-      throw new RuntimeException("토스페이먼츠 통신 실패 (타임아웃 또는 네트워크 오류)");
+      log.error("[Toss] payment cancel network error paymentKey={}", paymentKey, e);
+      throw new RuntimeException("TossPayments communication failed (timeout or network error)");
     } catch (HttpClientErrorException e) {
-      log.error("[Toss] 결제 취소 실패 paymentKey={} status={} body={}",
+      log.error("[Toss] payment cancel failed paymentKey={} status={} body={}",
           paymentKey, e.getStatusCode(), e.getResponseBodyAsString());
-      throw new RuntimeException("토스페이먼츠 결제 취소 실패: " + e.getResponseBodyAsString());
+      throw new RuntimeException("TossPayments cancel failed: " + e.getResponseBodyAsString());
     }
   }
 

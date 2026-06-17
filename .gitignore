@@ -71,6 +71,8 @@ bin/
 # Windows
 Thumbs.db
 
+# Claude Code
+.claude/
+
 # k6
 k6/data/test-data.json
-k6/results/

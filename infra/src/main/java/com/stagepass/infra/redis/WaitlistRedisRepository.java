@@ -47,7 +47,7 @@ public class WaitlistRedisRepository {
       double score = result.getScore() != null ? result.getScore() : 0.0;
       return new WaitlistPopResult(userId, score);
     } catch (NumberFormatException e) {
-      log.error("[Waitlist] popMin에서 잘못된 userId 형식 검출 showId={} value={}", showId, result.getValue(), e);
+      log.error("[Waitlist] invalid userId format from popMin showId={} value={}", showId, result.getValue(), e);
       return null; // 손상된 항목 — 스킵
     }
   }

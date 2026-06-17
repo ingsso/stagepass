@@ -74,7 +74,7 @@ public class SeatExchangeService {
         .build();
 
     exchangeRepository.save(exchange);
-    log.info("[Exchange] 교환 제안 exchangeId={} proposer={} receiver={}",
+    log.info("[Exchange] proposed exchangeId={} proposer={} receiver={}",
         exchange.getId(), proposerId, targetRes.getUser().getId());
 
     return new ExchangeResponse(exchangeRepository.findByIdWithDetails(exchange.getId()).orElseThrow());
@@ -136,7 +136,7 @@ public class SeatExchangeService {
     eventPublisher.publishExchangeCompleted(
         new SeatExchangeEvent(exchangeId, proposer.getId(), receiverId));
 
-    log.info("[Exchange] 교환 완료 exchangeId={} proposer={} receiver={}",
+    log.info("[Exchange] completed exchangeId={} proposer={} receiver={}",
         exchangeId, proposer.getId(), receiverId);
 
     return new ExchangeResponse(exchange);
@@ -156,7 +156,7 @@ public class SeatExchangeService {
     }
 
     exchange.reject();
-    log.info("[Exchange] 교환 거절 exchangeId={}", exchangeId);
+    log.info("[Exchange] rejected exchangeId={}", exchangeId);
     return new ExchangeResponse(exchangeRepository.findByIdWithDetails(exchangeId).orElseThrow());
   }
 
@@ -174,6 +174,6 @@ public class SeatExchangeService {
     }
 
     exchange.cancel();
-    log.info("[Exchange] 교환 취소 exchangeId={}", exchangeId);
+    log.info("[Exchange] cancelled exchangeId={}", exchangeId);
   }
 }

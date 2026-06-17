@@ -36,6 +36,7 @@ public class AdminSecurityConfig {
         .sessionManagement(s -> s.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
         .authorizeHttpRequests(auth -> auth
             .requestMatchers("/admin/auth/**").permitAll()
+            .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
             .anyRequest().hasRole("ADMIN")
         )
         .addFilterBefore(

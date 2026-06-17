@@ -125,7 +125,7 @@ public class SeatService {
         )
     );
 
-    log.info("[Seat] 선점 완료 userId={} seatIds={} reservationId={}",
+    log.info("[Seat] held userId={} seatIds={} reservationId={}",
         userId, heldIds, reservation.getId());
 
     return new SeatHoldResponse(heldIds, failedIds, reservation.getId(), expiresAt);
@@ -146,6 +146,6 @@ public class SeatService {
     Cache seatListCache = cacheManager.getCache("seat-list");
     if (seatListCache != null) seatListCache.evict(showId);
 
-    log.info("[Seat] 선점 해제 reservationId={} userId={}", reservationId, userId);
+    log.info("[Seat] released reservationId={} userId={}", reservationId, userId);
   }
 }

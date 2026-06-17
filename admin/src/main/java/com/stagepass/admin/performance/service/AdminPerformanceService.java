@@ -60,7 +60,7 @@ public class AdminPerformanceService {
       }
     }
 
-    log.info("[Admin] 구역·좌석 생성 showId={} zone={} seats={}",
+    log.info("[Admin] zone and seats created showId={} zone={} seats={}",
         showId, request.getName(), request.getRowCount() * request.getColCount());
   }
 
@@ -70,6 +70,6 @@ public class AdminPerformanceService {
     Show show = showRepository.findById(showId)
         .orElseThrow(() -> new BusinessException(ErrorCode.SHOW_NOT_FOUND));
     show.updateStatus(ShowStatus.valueOf(status));
-    log.info("[Admin] 회차 상태 변경 showId={} status={}", showId, status);
+    log.info("[Admin] show status updated showId={} status={}", showId, status);
   }
 }

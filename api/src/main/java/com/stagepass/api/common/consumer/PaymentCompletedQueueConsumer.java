@@ -44,18 +44,18 @@ public class PaymentCompletedQueueConsumer {
             Optional<QueueEntry> entry = queueEntryRepository.findByShowIdAndUserId(showId, userId);
             if (entry.isPresent() && entry.get().getStatus() == QueueStatus.ACTIVATED) {
               queueService.activateNextBatch(showId);
-              log.info("[Queue] 결제 완료 후 다음 배치 활성화 showId={} userId={}", showId, userId);
+              log.info("[Queue] next batch activated after payment showId={} userId={}", showId, userId);
             }
           },
-          () -> log.warn("[Queue] 결제 완료 이벤트 수신했으나 예매 없음 — 이상 징후 reservationId={}", event.getReservationId())
+          () -> log.warn("[Queue] payment completed but reservation not found reservationId={}", event.getReservationId())
       );
 
       ack.acknowledge();
     } catch (JsonProcessingException e) {
-      log.error("[Queue] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      log.error("[Queue] deserialization failed (poison pill) message={}", message, e);
       ack.acknowledge(); // 포이즌 필 — 재처리 없이 offset 커밋
     } catch (Exception e) {
-      log.error("[Queue] 결제 완료 큐 처리 실패 message={}", message, e);
+      log.error("[Queue] payment completed queue processing failed message={}", message, e);
       throw new RuntimeException(e);
     }
   }

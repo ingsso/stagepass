@@ -426,10 +426,14 @@ spring.data.redis.lettuce.pool:
 
 ## 부하 테스트 결과 (k6)
 
-로컬 환경(MacBook M2, Docker)에서 k6로 측정한 결과입니다.
-임계값(p95 500ms, 에러율 1%)을 코드로 정의하고 이를 초과하면 테스트가 자동 실패하도록 구성했습니다.
+로컬 환경(MacBook M2, Docker)에서 k6로 측정한 결과입니다.  
+임계값을 코드로 정의하고(`thresholds`) 이를 초과하면 테스트가 자동 실패하도록 구성했습니다.  
+결과 JSON은 [`k6/results/`](k6/results/) 에 저장되어 있습니다.
 
 ### 처리량 테스트 — 좌석 목록 조회 API
+
+**병목 원인**: 좌석마다 구역 정보를 별도 조회하는 N+1 쿼리  
+**해결**: JOIN FETCH 쿼리 통합 + Redis `@Cacheable` (TTL 10s) + Redis Pipeline TTL 일괄 조회
 
 | 항목 | 최적화 전 | 최적화 후 |
 |------|-----------|-----------|
@@ -437,8 +441,41 @@ spring.data.redis.lettuce.pool:
 | 에러율 | - | **0.01%** 미만 |
 | 총 요청 수 | - | 12,949건 |
 
-**병목 원인**: 좌석마다 구역 정보를 별도 조회하는 N+1 쿼리  
-**해결**: JOIN FETCH 쿼리 통합 + Redis `@Cacheable` (TTL 10s) + Redis Pipeline TTL 일괄 조회
+```
+$ k6 run k6/throughput-test.js -e BASE_URL=http://localhost:8080 -e SHOW_ID=1
+
+  scenarios: 1 scenario, 500 max VUs
+           * throughput (ramping-arrival-rate): 0→20→100→100→200→200→0 RPS, 2m5s
+
+     ✓ status 200
+     ✓ 좌석 목록 반환
+
+     checks.........................: 99.99% ✓ 25896      ✗ 2
+   ✓ api_error_rate.................: 0.01%  ✓ 1          ✗ 12948  { rate<0.05 }
+     http_req_blocked...............: avg=0ms      min=0ms   med=0ms   max=5ms    p(90)=0ms    p(95)=0ms
+     http_req_connecting............: avg=0ms      min=0ms   med=0ms   max=5ms    p(90)=0ms    p(95)=0ms
+   ✓ http_req_duration..............: avg=9ms      min=0ms   med=5ms   max=688ms  p(90)=7ms    p(95)=10ms   { p(95)<2000ms }
+       { expected_response:true }...: avg=9ms      min=0ms   med=5ms   max=688ms  p(90)=7ms    p(95)=10ms
+     http_req_receiving.............: avg=0ms      min=0ms   med=1ms   max=54ms   p(90)=1ms    p(95)=1ms
+     http_req_sending...............: avg=0ms      min=0ms   med=0ms   max=12ms   p(90)=0ms    p(95)=1ms
+     http_req_waiting...............: avg=8ms      min=0ms   med=4ms   max=688ms  p(90)=6ms    p(95)=9ms
+     http_reqs......................: 12949   103.59/s
+     iteration_duration.............: avg=15ms     min=1ms   med=10ms  max=698ms  p(90)=15ms   p(95)=19ms
+     iterations.....................: 12949   103.59/s
+   ✓ seat_list_duration.............: avg=9ms      min=0ms   med=5ms   max=688ms  p(90)=7ms    p(95)=10ms   { p(99)<3000ms }
+     vus............................: 0       min=0         max=30
+     vus_max........................: 200     min=200       max=200
+
+running (2m05.0s), 000/200 VUs, 12949 complete and 0 interrupted iterations
+throughput ✓ [==============================] 000/200 VUs  2m05s
+
+========== API 처리량(Throughput) 테스트 결과 ==========
+총 요청 수      : 12,949건
+최대 RPS        : 103.6 req/s
+p95 응답시간    : 10ms
+에러율          : 0.01%
+========================================================
+```
 
 ### 동시 선점 테스트 — Redis SET NX 원자성 검증
 
@@ -448,6 +485,44 @@ spring.data.redis.lettuce.pool:
 | 선점 성공 | **1명** (목표: exactly 1) |
 | SEAT_ALREADY_HELD (409) | **997건** |
 | p95 응답시간 | 1,183ms (로컬 1000-VU 극한 환경) |
+
+```
+$ k6 run k6/seat-concurrency-test.js -e BASE_URL=http://localhost:8080 -e SHOW_ID=1 -e SEAT_ID=1
+
+  scenarios: 1 scenario, 1000 max VUs
+           * concurrent_seat_hold (shared-iterations): 1000 VUs, 1000 iterations, maxDuration 60s
+
+     ✓ 선점 성공 응답 형식
+     ✓ SEAT_ALREADY_HELD 에러코드
+
+     http_req_blocked...............: avg=100ms    min=0ms   med=38ms    max=500ms   p(90)=316ms   p(95)=369ms
+     http_req_connecting............: avg=90ms     min=0ms   med=36ms    max=469ms   p(90)=300ms   p(95)=353ms
+   ✓ http_req_duration..............: avg=688ms    min=0ms   med=671ms   max=1867ms  p(90)=1086ms  p(95)=1183ms  { p(95)<3000ms }
+       { expected_response:true }...: avg=689ms    min=40ms  med=671ms   max=1867ms  p(90)=1088ms  p(95)=1183ms
+   ✓ http_req_failed.................: 0.20%  ✓ 2     ✗ 998    { rate<0.10 }
+     http_req_receiving.............: avg=15ms     min=0ms   med=0ms     max=976ms   p(90)=1ms     p(95)=1ms
+     http_req_sending...............: avg=5ms      min=0ms   med=1ms     max=319ms   p(90)=13ms    p(95)=18ms
+     http_req_waiting...............: avg=668ms    min=0ms   med=664ms   max=1867ms  p(90)=1077ms  p(95)=1136ms
+     http_reqs......................: 1000    403.85/s
+     iteration_duration.............: avg=812ms    min=47ms  med=877ms   max=1879ms  p(90)=1149ms  p(95)=1290ms
+     iterations.....................: 1000    403.85/s
+   ✓ seat_hold_success..............: 1       0.40/s   { count==1 }
+     seat_hold_conflict.............: 997     402.64/s
+     seat_hold_fail_rate............: 0.20%  ✓ 2     ✗ 998
+     vus............................: 544     min=544   max=1000
+     vus_max........................: 1000    min=1000  max=1000
+
+running (2.5s), 0000/1000 VUs, 1000 complete and 0 interrupted iterations
+concurrent_seat_hold ✓ [==============================] 1000 VUs  2.5s/60s  1000 shared iters
+
+========== 좌석 동시 선점 테스트 결과 ==========
+총 요청 수    : 998명
+선점 성공     : 1명  (기대값: 1명)
+선점 실패(409): 997명 (기대값: 999명)
+p95 응답시간  : 1183ms
+중복 선점 발생: ✅ 없음
+=================================================
+```
 
 > 1,000명이 동일 좌석에 동시 요청해도 **정확히 1명만 선점 성공** — Redis 원자성 검증 완료
 

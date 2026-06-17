@@ -22,7 +22,7 @@ public class RedisNotificationPublisher {
       String payload = objectMapper.writeValueAsString(new NotificationMessage(userId, type, message));
       redisTemplate.convertAndSend(CHANNEL_PREFIX + userId, payload);
     } catch (JsonProcessingException e) {
-      log.error("[Redis] 알림 발행 직렬화 실패 userId={} type={}", userId, type, e);
+      log.error("[Redis] notification publish serialization failed userId={} type={}", userId, type, e);
     }
   }
 }

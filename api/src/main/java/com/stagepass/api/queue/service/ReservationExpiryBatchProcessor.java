@@ -73,10 +73,10 @@ public class ReservationExpiryBatchProcessor {
       waitlistService.notifyNext(showId);
 
       eventPublisher.publishNotification(new NotificationEvent(
-          userId, "RESERVATION_EXPIRED", "예매 시간이 만료되었습니다. 좌석 선점이 해제됩니다."
+          userId, "RESERVATION_EXPIRED", "Your reservation has expired. Seat hold has been released."
       ));
 
-      log.info("[Scheduler] 예매 만료 처리 reservationId={}", reservation.getId());
+      log.info("[Scheduler] reservation expired reservationId={}", reservation.getId());
     }
 
     // showId당 1회만 호출 — 같은 회차 여러 예매 만료 시 중복 호출 방지

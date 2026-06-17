@@ -29,7 +29,7 @@ public class PaymentFailureConsumer {
   public void handlePaymentFailed(String message, Acknowledgment ack) {
     try {
       PaymentResultEvent event = objectMapper.readValue(message, PaymentResultEvent.class);
-      log.info("[Waitlist] 결제 실패 감지 reservationId={}", event.getReservationId());
+      log.info("[Waitlist] payment failure detected reservationId={}", event.getReservationId());
 
       reservationRepository.findById(event.getReservationId())
           .map(Reservation::getShow)
@@ -37,10 +37,10 @@ public class PaymentFailureConsumer {
 
       ack.acknowledge();
     } catch (JsonProcessingException e) {
-      log.error("[Waitlist] 역직렬화 실패 (포이즌 필) message={}", message, e);
+      log.error("[Waitlist] deserialization failed (poison pill) message={}", message, e);
       ack.acknowledge(); // 포이즌 필 — 재처리 없이 offset 커밋
     } catch (Exception e) {
-      log.error("[Waitlist] 결제 실패 대기열 알림 처리 실패 message={}", message, e);
+      log.error("[Waitlist] payment failure waitlist notification failed message={}", message, e);
       throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }

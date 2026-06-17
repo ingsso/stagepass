@@ -39,22 +39,22 @@ public class GlobalExceptionHandler {
   // JSON 파싱 실패 (잘못된 타입, 누락된 필수 필드 등)
   @ExceptionHandler(HttpMessageNotReadableException.class)
   public ResponseEntity<ApiResponse<Void>> handleNotReadable(HttpMessageNotReadableException e) {
-    log.warn("[Request] JSON 파싱 실패 - {}", e.getMessage());
-    return ResponseEntity.badRequest().body(ApiResponse.fail("요청 형식이 올바르지 않습니다."));
+    log.warn("[Request] JSON parse failed - {}", e.getMessage());
+    return ResponseEntity.badRequest().body(ApiResponse.fail("Invalid request format."));
   }
 
   // DB unique 제약 위반 (이메일 중복 등 비즈니스 검증을 통과한 경우의 최후 방어)
   @ExceptionHandler(DataIntegrityViolationException.class)
   public ResponseEntity<ApiResponse<Void>> handleDataIntegrity(DataIntegrityViolationException e) {
-    log.warn("[DB] 제약 조건 위반 - {}", e.getMessage());
+    log.warn("[DB] constraint violation - {}", e.getMessage());
     return ResponseEntity.status(HttpStatus.CONFLICT)
-        .body(ApiResponse.fail("이미 존재하는 데이터입니다."));
+        .body(ApiResponse.fail("Data already exists."));
   }
 
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
-    log.error("[Exception] 서버 오류", e);
+    log.error("[Exception] internal server error", e);
     return ResponseEntity.internalServerError()
-        .body(ApiResponse.fail("서버 오류가 발생했습니다."));
+        .body(ApiResponse.fail("Internal server error."));
   }
 }

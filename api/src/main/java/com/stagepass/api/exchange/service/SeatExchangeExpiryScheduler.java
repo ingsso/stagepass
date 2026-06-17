@@ -30,6 +30,6 @@ public class SeatExchangeExpiryScheduler {
     if (expired.isEmpty()) return;
 
     expired.forEach(SeatExchange::expire);
-    log.info("[Scheduler] 교환 제안 만료 처리 count={}", expired.size());
+    log.info("[Scheduler] exchange proposals expired count={}", expired.size());
   }
 }

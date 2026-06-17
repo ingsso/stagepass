@@ -44,7 +44,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         }
       } catch (BusinessException e) {
         // @RestControllerAdvice는 필터 계층 예외를 처리하지 못하므로 여기서 직접 응답 작성
-        log.warn("[JWT] 토큰 검증 실패 - {}", e.getMessage());
+        log.warn("[JWT] token validation failed - {}", e.getMessage());
         sendErrorResponse(response, e.getErrorCode().getStatus().value(), e.getMessage());
         return;
       }

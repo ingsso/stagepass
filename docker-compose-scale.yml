@@ -1,0 +1,95 @@
+# Redis Pub/Sub SSE 수평 확장 검증용 다중 인스턴스 환경
+# 사전 준비: ./gradlew :notification:bootJar
+# 실행: docker-compose -f docker-compose-scale.yml up -d --build
+
+services:
+  postgres:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: stagepass
+      POSTGRES_USER: stagepass
+      POSTGRES_PASSWORD: stagepass1234
+    ports:
+      - "5432:5432"
+
+  redis:
+    image: redis:7-alpine
+    container_name: stagepass-redis
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.6.0
+    container_name: stagepass-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    container_name: stagepass-kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"   # 호스트 → Kafka (EXTERNAL)
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      # INTERNAL: Docker 내부 컨테이너 간 통신 (29092)
+      # EXTERNAL: 호스트에서 접근 (9092)
+      KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: 'true'
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 15
+      start_period: 30s
+
+  notification-1:
+    build:
+      context: ./notification
+    container_name: notification-1
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8083:8083"   # 직접 접근 (검증용)
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+  notification-2:
+    build:
+      context: ./notification
+    container_name: notification-2
+    depends_on:
+      redis:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8084:8083"   # 직접 접근 (검증용)
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+  nginx:
+    image: nginx:alpine
+    container_name: notification-nginx
+    depends_on:
+      - notification-1
+      - notification-2
+    ports:
+      - "8090:80"
+    volumes:
+      - ./nginx/notification.conf:/etc/nginx/conf.d/default.conf:ro

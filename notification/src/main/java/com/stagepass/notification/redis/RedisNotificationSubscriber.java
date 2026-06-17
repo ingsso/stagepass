@@ -22,7 +22,7 @@ public class RedisNotificationSubscriber implements MessageListener {
       NotificationMessage payload = objectMapper.readValue(message.getBody(), NotificationMessage.class);
       sseNotificationService.sendToUser(payload.getUserId(), payload.getType(), payload.getMessage());
     } catch (Exception e) {
-      log.error("[Redis] 알림 수신 처리 실패 message={}", new String(message.getBody()), e);
+      log.error("[Redis] notification receive failed message={}", new String(message.getBody()), e);
     }
   }
 }

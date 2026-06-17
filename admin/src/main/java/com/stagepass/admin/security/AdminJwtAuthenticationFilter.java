@@ -40,7 +40,7 @@ public class AdminJwtAuthenticationFilter extends OncePerRequestFilter {
           SecurityContextHolder.getContext().setAuthentication(auth);
         }
       } catch (BusinessException e) {
-        log.warn("[AdminJWT] 토큰 검증 실패 - {}", e.getMessage());
+        log.warn("[AdminJWT] token validation failed - {}", e.getMessage());
         sendErrorResponse(response, e.getErrorCode().getStatus().value(), e.getMessage());
         return;
       }

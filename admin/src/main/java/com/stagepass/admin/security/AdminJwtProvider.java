@@ -43,7 +43,7 @@ public class AdminJwtProvider {
       getClaims(token);
       return true;
     } catch (JwtException e) {
-      log.warn("[AdminJwt] 유효하지 않은 토큰: {}", e.getMessage());
+      log.warn("[AdminJwt] invalid token: {}", e.getMessage());
       return false;
     }
   }

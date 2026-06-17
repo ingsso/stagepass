@@ -51,7 +51,7 @@ public class WaitlistService {
     Long rank = waitlistRedisRepository.getRank(showId, userId);
     Long total = waitlistRedisRepository.getSize(showId);
 
-    log.info("[Waitlist] 취소 대기 등록 showId={} userId={} rank={}", showId, userId, rank);
+    log.info("[Waitlist] joined showId={} userId={} rank={}", showId, userId, rank);
     return new WaitlistStatusResponse(rank, total, "WAITING");
   }
 
@@ -78,7 +78,7 @@ public class WaitlistService {
     waitlistRedisRepository.remove(showId, userId);
     waitlistRepository.findByShowIdAndUserId(showId, userId)
         .ifPresent(WaitlistEntry::cancel);
-    log.info("[Waitlist] 취소 대기 이탈 showId={} userId={}", showId, userId);
+    log.info("[Waitlist] left showId={} userId={}", showId, userId);
   }
 
   // 예매 취소/만료 발생 시 첫 번째 대기자에게 알림
@@ -99,11 +99,11 @@ public class WaitlistService {
               "Waitlist entry not found after Redis pop: showId=" + showId + " userId=" + nextUserId));
       entry.notify(LocalDateTime.now());
       eventPublisher.publishWaitlistNotified(new WaitlistEvent(showId, nextUserId));
-      log.info("[Waitlist] 대기자 알림 showId={} userId={}", showId, nextUserId);
+      log.info("[Waitlist] notified showId={} userId={}", showId, nextUserId);
     } catch (Exception e) {
       // 원래 score로 복구 — add()는 currentTimeMillis를 score로 써서 순번이 소실됨
       waitlistRedisRepository.addWithScore(showId, nextUserId, originalScore);
-      log.error("[Waitlist] 대기자 알림 실패, Redis 복구 showId={} userId={}", showId, nextUserId, e);
+      log.error("[Waitlist] notification failed, Redis restored showId={} userId={}", showId, nextUserId, e);
     }
   }
 }

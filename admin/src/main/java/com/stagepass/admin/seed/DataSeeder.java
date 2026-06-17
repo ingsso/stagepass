@@ -33,13 +33,13 @@ public class DataSeeder implements ApplicationRunner {
   @Transactional
   public void run(ApplicationArguments args) {
     if (performanceRepository.count() > 0) {
-      log.info("[Seed] 이미 데이터가 존재합니다. 시드를 건너뜁니다.");
+      log.info("[Seed] data already exists, skipping");
       return;
     }
 
     seedUsers();
     seedPerformances();
-    log.info("[Seed] 초기 데이터 생성 완료");
+    log.info("[Seed] initial data created");
   }
 
   private void seedUsers() {
@@ -67,7 +67,7 @@ public class DataSeeder implements ApplicationRunner {
           .build());
     }
 
-    log.info("[Seed] 유저 생성 완료");
+    log.info("[Seed] users created");
   }
 
   private void seedPerformances() {
@@ -140,7 +140,7 @@ public class DataSeeder implements ApplicationRunner {
         );
         createZonesAndSeats(show);
       }
-      log.info("[Seed] 공연 생성 '{}' - 회차 {}개", seed.title(), seed.showDatetimes().size());
+      log.info("[Seed] performance created '{}' - {} shows", seed.title(), seed.showDatetimes().size());
     }
   }
 

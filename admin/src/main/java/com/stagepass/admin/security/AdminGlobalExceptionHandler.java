@@ -21,8 +21,8 @@ public class AdminGlobalExceptionHandler {
 
   @ExceptionHandler(Exception.class)
   public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
-    log.error("[AdminException] 서버 오류", e);
+    log.error("[AdminException] internal server error", e);
     return ResponseEntity.internalServerError()
-        .body(ApiResponse.fail("서버 오류가 발생했습니다."));
+        .body(ApiResponse.fail("Internal server error."));
   }
 }

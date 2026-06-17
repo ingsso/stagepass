@@ -29,6 +29,6 @@ public class TransferExpiryScheduler {
     if (expired.isEmpty()) return;
 
     expired.forEach(Transfer::expire);
-    log.info("[Scheduler] 양도 글 만료 처리 count={}", expired.size());
+    log.info("[Scheduler] transfer listings expired count={}", expired.size());
   }
 }

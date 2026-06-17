@@ -85,13 +85,13 @@ public class EventPublisher {
     try {
       String message = objectMapper.writeValueAsString(event);
       kafkaTemplate.send(topic, key, message).get(5, TimeUnit.SECONDS);
-      log.debug("[Kafka] 발행 성공 topic={} key={}", topic, key);
+      log.debug("[Kafka] published topic={} key={}", topic, key);
     } catch (JsonProcessingException e) {
-      log.error("[Kafka] 직렬화 실패 topic={} error={}", topic, e.getMessage());
-      throw new RuntimeException("Kafka 이벤트 직렬화 실패", e);
+      log.error("[Kafka] serialization failed topic={} error={}", topic, e.getMessage());
+      throw new RuntimeException("Kafka event serialization failed", e);
     } catch (Exception e) {
-      log.error("[Kafka] 발행 실패 topic={} key={} error={}", topic, key, e.getMessage());
-      throw new RuntimeException("Kafka 이벤트 발행 실패: " + topic, e);
+      log.error("[Kafka] publish failed topic={} key={} error={}", topic, key, e.getMessage());
+      throw new RuntimeException("Kafka event publish failed: " + topic, e);
     }
   }
 }

@@ -24,17 +24,17 @@ public class SseNotificationService {
     emitter.onCompletion(() -> emitterRepository.delete(userId, emitter));
     emitter.onTimeout(() -> {
       emitterRepository.delete(userId, emitter);
-      log.debug("[SSE] 타임아웃 userId={}", userId);
+      log.debug("[SSE] timeout userId={}", userId);
     });
     emitter.onError(e -> {
       emitterRepository.delete(userId, emitter);
-      log.debug("[SSE] 에러 userId={} error={}", userId, e.getMessage());
+      log.debug("[SSE] error userId={} error={}", userId, e.getMessage());
     });
 
     emitterRepository.save(userId, emitter);
 
     // 연결 직후 더미 이벤트 — 503 방지
-    sendToUser(userId, "CONNECTED", "SSE 연결 완료");
+    sendToUser(userId, "CONNECTED", "SSE connected");
 
     return emitter;
   }
@@ -45,9 +45,9 @@ public class SseNotificationService {
     for (SseEmitter emitter : targets) {
       try {
         emitter.send(SseEmitter.event().name(type).data(message));
-        log.debug("[SSE] 발송 완료 userId={} type={}", userId, type);
+        log.debug("[SSE] sent userId={} type={}", userId, type);
       } catch (IOException e) {
-        log.warn("[SSE] 발송 실패 userId={} type={} — 연결 제거", userId, type);
+        log.warn("[SSE] send failed userId={} type={} - removing emitter", userId, type);
         emitterRepository.delete(userId, emitter);
         emitter.completeWithError(e);
       }

@@ -39,7 +39,7 @@ public class ReservationEventConsumer {
     try {
       PaymentResultEvent event = objectMapper.readValue(message, PaymentResultEvent.class);
       Reservation reservation = reservationRepository.findById(event.getReservationId())
-          .orElseThrow(() -> new RuntimeException("예매 없음: " + event.getReservationId()));
+          .orElseThrow(() -> new RuntimeException("Reservation not found: " + event.getReservationId()));
 
       reservation.confirm();
 
@@ -50,10 +50,10 @@ public class ReservationEventConsumer {
         rs.getSeat().reserve();
       }
 
-      log.info("[Kafka] 예매 확정 reservationId={}", reservation.getId());
+      log.info("[Kafka] reservation confirmed reservationId={}", reservation.getId());
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Kafka] 예매 확정 처리 실패 message={}", message, e);
+      log.error("[Kafka] reservation confirm processing failed message={}", message, e);
       throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
@@ -65,7 +65,7 @@ public class ReservationEventConsumer {
     try {
       PaymentResultEvent event = objectMapper.readValue(message, PaymentResultEvent.class);
       Reservation reservation = reservationRepository.findById(event.getReservationId())
-          .orElseThrow(() -> new RuntimeException("예매 없음: " + event.getReservationId()));
+          .orElseThrow(() -> new RuntimeException("Reservation not found: " + event.getReservationId()));
 
       reservation.expire();
 
@@ -76,10 +76,10 @@ public class ReservationEventConsumer {
         seatRedisRepository.release(rs.getSeat().getId(), event.getUserId());
       }
 
-      log.info("[Kafka] 보상 트랜잭션 완료 reservationId={}", reservation.getId());
+      log.info("[Kafka] compensation transaction completed reservationId={}", reservation.getId());
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Kafka] 보상 트랜잭션 실패 message={}", message, e);
+      log.error("[Kafka] compensation transaction failed message={}", message, e);
       throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }

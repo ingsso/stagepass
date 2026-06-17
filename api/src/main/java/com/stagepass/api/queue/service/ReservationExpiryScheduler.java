@@ -26,7 +26,7 @@ public class ReservationExpiryScheduler {
     } while (batch.size() == ReservationExpiryBatchProcessor.BATCH_SIZE);
 
     if (totalProcessed > 0) {
-      log.info("[Scheduler] 예매 만료 처리 완료 total={}", totalProcessed);
+      log.info("[Scheduler] reservation expiry done total={}", totalProcessed);
     }
   }
 }
