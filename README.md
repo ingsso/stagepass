@@ -555,42 +555,74 @@ p95 응답시간  : 1183ms
 
 > 1,000명이 동일 좌석에 동시 요청해도 **정확히 1명만 선점 성공** — Redis 원자성 검증 완료
 
-### 대기열 동시 진입 테스트 — Redis ZSET 순번 발급
+### 대기열 동시 진입 테스트 — 순번 유일성 검증
 
+1,000명이 동시에 같은 회차 대기열에 진입할 때 **모두가 서로 다른 순번을 받아야 한다**는 것이 이 테스트의 핵심입니다.
 순번은 Redis Sorted Set에 `ZADD` 후 `ZRANK`로 조회해 발급합니다.
-DB INSERT는 `REQUIRES_NEW` 내부 트랜잭션으로 시도하고, 유니크 제약 위반 시 재진입으로 처리해 동시 진입 경쟁을 흡수합니다.
 
 | 항목 | 결과 |
 |------|------|
 | 동시 VU | **1,000명** |
-| 진입 성공 | **990건** |
-| 진입 실패 | 10건 (연결 실패 — 아래 참고) |
-| p95 응답시간 | 2,499ms (로컬 1000-VU 극한 환경) |
-| 처리율 | 242.8 req/s |
-
-실행 명령과 [`k6/results/queue-concurrency-result.json`](k6/results/queue-concurrency-result.json) 에 기록된 지표입니다.
+| 진입 성공 | **1,000건** (에러율 0%) |
+| 중복 순번 | **0건** |
+| 누락 순번 | **0건** (1~1000 전부 발급) |
+| p95 응답시간 | 1,769ms (로컬 1000-VU 환경) |
+| 처리율 | 391.3 req/s |
 
 ```bash
-k6 run k6/queue-concurrency-test.js -e BASE_URL=http://localhost:8080 -e SHOW_ID=1
+k6 run --out json=k6/results/queue-raw.json k6/queue-concurrency-test.js   -e BASE_URL=http://localhost:8080 -e SHOW_ID=1
+node k6/verify-ranks.js k6/results/queue-raw.json
 ```
 
-| 지표 | 값 | 임계값 | 통과 |
-|------|-----|--------|------|
-| `queue_enter_success` | 990 | `count >= 950` | ✅ |
-| `http_req_failed` | 1.00% (10/1000) | `rate < 0.10` | ✅ |
-| `http_req_duration` p95 | 2,499ms | `p(95) < 3000` | ✅ |
-| `http_req_duration` avg / med / max | 1,870 / 2,183 / 3,068ms | — | — |
-| `http_reqs` | 1,000 (242.81/s) | — | — |
+```
+========== 대기열 순번 중복 검증 ==========
+발급된 순번 수 : 1000건
+고유 순번 수   : 1000건
+순번 범위      : 1 ~ 1000
+누락 순번      : 0건
+중복 순번      : ✅ 0건 — 모든 사용자가 서로 다른 순번을 발급받음
+===========================================
+```
 
-실패 10건은 애플리케이션 에러가 아니라 **연결 단계 실패**입니다.
-전체 `http_req_duration`의 min이 0ms인 반면 `expected_response:true`의 min은 201ms로,
-해당 10건은 응답을 받지 못한 요청입니다. 단일 로컬 머신에서 1,000 VU를 띄울 때의 소켓 한계로,
-`http_req_blocked` p95가 300ms까지 오르는 것과 같은 원인입니다.
-이를 감안해 임계값을 `success >= 95%`, `http_req_failed < 10%`로 정의했고 세 임계값 모두 통과했습니다.
+지표는 [`k6/results/queue-concurrency-result.json`](k6/results/queue-concurrency-result.json) 에 기록되며,
+임계값(`success >= 950`, `http_req_failed < 10%`, `p95 < 3000ms`) 3개 모두 통과합니다.
 
-> **순번 중복 여부는 이 테스트로 검증되지 않았습니다.** 스크립트의 중복 검사 로직이
-> k6의 VU별 독립 런타임 특성상 동작하지 않아(각 VU의 `ranks` 배열이 `handleSummary`에 전달되지 않음)
-> 항상 "중복 없음"을 출력합니다. 중복 방지는 ZSET 구조상 보장되지만, 실측 검증은 별도 과제로 남아 있습니다.
+#### 이 테스트로 잡은 버그 2건
+
+**1. 순번 중복 — 밀리초 score 동점**
+
+`ZADD` score로 `System.currentTimeMillis()`를 쓰고 있었습니다. 밀리초 단위라 동시 진입 시 동점이 대량 발생하고,
+동점 멤버는 Redis가 userId 사전순으로 정렬합니다. `ZADD`와 `ZRANK`는 별도 왕복이므로,
+내가 `ZADD`한 뒤 순번을 읽기 전에 같은 score의 더 작은 userId가 끼어들면 내 순번이 밀립니다
+→ **두 사용자가 같은 순번을 읽습니다.**
+
+score를 회차별 `INCR` 시퀀스로 교체했습니다. 고유하고 단조 증가하므로 뒤에 들어온 멤버가 앞사람 순번을 밀 수 없습니다.
+
+| | 중복 순번 | 누락 순번 |
+|--|--|--|
+| 수정 전 (`currentTimeMillis` score) | 10건 | 10건 |
+| 수정 후 (`INCR` 시퀀스 score) | **0건** | **0건** |
+
+**2. 커넥션 풀 자기 교착 — 중첩 `REQUIRES_NEW`**
+
+`@Transactional`인 `QueueService.enter()`가 커넥션을 쥔 채 `REQUIRES_NEW`인 INSERT를 호출해,
+요청 하나가 커넥션을 **2개** 요구했습니다. HikariCP 기본 풀은 10개라 동시 요청이 10개에 도달하는 순간
+모든 스레드가 서로의 커넥션 반납을 기다리는 교착에 빠집니다 — **1,000 VU에서 성공 0건으로 전면 정지**했고,
+스레드 덤프에서 워커 200개가 전부 `HikariPool.getConnection`에 파킹된 것을 확인했습니다.
+
+INSERT 쿼리가 이미 `ON CONFLICT DO NOTHING`이라 제약 위반 예외 자체가 발생하지 않으므로,
+트랜잭션을 분리할 이유가 없었습니다. `REQUIRES_NEW`를 제거해 외부 트랜잭션에 합류시켰습니다(요청당 커넥션 1개).
+
+| | 진입 성공 |
+|--|--|
+| 수정 전 (`REQUIRES_NEW` 중첩) | 0건 / 1,000 (전면 교착) |
+| 수정 후 | **1,000건 / 1,000** |
+
+> 참고: 이 중복 검사는 원래 테스트 스크립트 안에서 배열로 수집해 검증했는데,
+> k6는 VU마다 독립된 JS 런타임을 쓰기 때문에 그 배열이 `handleSummary`에 전달되지 않아
+> **항상 "중복 없음"을 출력하고 있었습니다.** 순번을 메트릭으로 방출하고
+> 원시 출력(`--out json`)을 [`k6/verify-ranks.js`](k6/verify-ranks.js)로 전수 검사하도록 바꾼 뒤에야
+> 위 버그 2건이 드러났습니다.
 
 <br>
 

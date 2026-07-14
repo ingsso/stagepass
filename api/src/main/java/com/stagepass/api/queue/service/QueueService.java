@@ -4,12 +4,10 @@ import com.stagepass.api.queue.dto.QueueEnterResponse;
 import com.stagepass.api.queue.dto.QueueStatusResponse;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
-import com.stagepass.domain.performance.Show;
 import com.stagepass.domain.performance.ShowRepository;
 import com.stagepass.domain.queue.QueueEntry;
 import com.stagepass.domain.queue.QueueEntryRepository;
 import com.stagepass.domain.queue.QueueStatus;
-import com.stagepass.domain.user.User;
 import com.stagepass.domain.user.UserRepository;
 import com.stagepass.infra.redis.QueueRedisRepository;
 import com.stagepass.kafka.event.QueueEvent;
@@ -38,38 +36,63 @@ public class QueueService {
   private final ShowRepository showRepository;
   private final UserRepository userRepository;
   private final EventPublisher eventPublisher;
+  private final QueueEntryWriter queueEntryWriter;
 
   // 대기열 진입
   @Transactional
   public QueueEnterResponse enter(Long showId, Long userId) {
     showRepository.findById(showId)
         .orElseThrow(() -> new BusinessException(ErrorCode.SHOW_NOT_FOUND));
-    User user = userRepository.findById(userId)
+    userRepository.findById(userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.USER_NOT_FOUND));
 
-    // Redis에 이미 있으면 현재 순번 반환
+    // Redis에 이미 있으면 현재 순번 반환 — DB 불일치·미활성화 상태 복구 포함
     Long existingRank = queueRedisRepository.getRank(showId, userId);
     if (existingRank != null) {
       Long total = queueRedisRepository.getSize(showId);
-      return new QueueEnterResponse(existingRank, total, false);
+      QueueEntry existingRedisEntry = queueEntryRepository.findByShowIdAndUserId(showId, userId).orElse(null);
+
+      // Redis에는 있는데 DB에 없는 orphan 상태 → DB 진입 레코드 복구
+      if (existingRedisEntry == null) {
+        queueEntryWriter.tryInsert(showId, userId); // 이미 있으면 no-op
+        existingRedisEntry = queueEntryRepository.findByShowIdAndUserId(showId, userId).orElse(null);
+      }
+
+      boolean alreadyActivated = existingRedisEntry != null && existingRedisEntry.getStatus() == QueueStatus.ACTIVATED;
+      if (!alreadyActivated && existingRedisEntry != null && existingRank <= ACTIVATE_BATCH_SIZE) {
+        existingRedisEntry.activate();
+        eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, existingRank));
+        alreadyActivated = true;
+      }
+      return new QueueEnterResponse(existingRank, total, alreadyActivated);
     }
 
     // DB에 이미 있으면 Redis 재등록 (Redis flush 등으로 인한 DB-Redis 불일치 복구)
-    if (queueEntryRepository.findByShowIdAndUserId(showId, userId).isPresent()) {
+    QueueEntry existingEntry = queueEntryRepository.findByShowIdAndUserId(showId, userId).orElse(null);
+    if (existingEntry != null) {
       queueRedisRepository.enter(showId, userId);
       Long rank = queueRedisRepository.getRank(showId, userId);
       Long total = queueRedisRepository.getSize(showId);
-      return new QueueEnterResponse(rank != null ? rank : 0L, total != null ? total : 0L, false);
+      boolean alreadyActivated = existingEntry.getStatus() == QueueStatus.ACTIVATED;
+      // 재진입 시 rank ≤ 10이고 아직 미활성화면 즉시 활성화
+      if (!alreadyActivated && rank != null && rank <= ACTIVATE_BATCH_SIZE) {
+        existingEntry.activate();
+        eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, rank));
+        alreadyActivated = true;
+      }
+      return new QueueEnterResponse(rank != null ? rank : 0L, total != null ? total : 0L, alreadyActivated);
     }
 
-    // DB 먼저 저장 — 실패 시 Redis 진입하지 않아 orphan 방지
-    queueEntryRepository.save(
-        QueueEntry.builder()
-            .show(showRepository.getReferenceById(showId))
-            .user(user)
-            .rank(0)  // Redis 진입 전이라 임시값; 실제 순번은 Redis rank 기준
-            .build()
-    );
+    // 동시 진입 경쟁 처리: ON CONFLICT DO NOTHING INSERT — 이미 있으면 재진입으로 처리
+    if (!queueEntryWriter.tryInsert(showId, userId)) {
+      // 다른 요청이 먼저 INSERT를 커밋한 케이스 — 현재 상태 그대로 반환
+      queueRedisRepository.enter(showId, userId); // 멱등: 이미 있으면 score만 갱신
+      Long raceRank = queueRedisRepository.getRank(showId, userId);
+      Long raceTotal = queueRedisRepository.getSize(showId);
+      QueueEntry raceEntry = queueEntryRepository.findByShowIdAndUserId(showId, userId).orElse(null);
+      boolean raceActivated = raceEntry != null && raceEntry.getStatus() == QueueStatus.ACTIVATED;
+      return new QueueEnterResponse(raceRank != null ? raceRank : 0L, raceTotal != null ? raceTotal : 0L, raceActivated);
+    }
 
     // DB 저장 성공 후 Redis 진입
     queueRedisRepository.enter(showId, userId);
@@ -89,8 +112,8 @@ public class QueueService {
     return new QueueEnterResponse(rank != null ? rank : 0L, total != null ? total : 0L, activated);
   }
 
-  // 대기열 순번 조회
-  @Transactional(readOnly = true)
+  // 대기열 순번 조회 — rank ≤ 10이고 WAITING이면 즉시 활성화 (TX 실패로 인한 stuck 복구)
+  @Transactional
   public QueueStatusResponse getStatus(Long showId, Long userId) {
     Long rank = queueRedisRepository.getRank(showId, userId);
     Long total = queueRedisRepository.getSize(showId);
@@ -99,12 +122,24 @@ public class QueueService {
       return new QueueStatusResponse(null, total, null, "NOT_IN_QUEUE");
     }
 
-    // DB에서 활성화 여부 확인
-    QueueEntry entry = queueEntryRepository.findByShowIdAndUserId(showId, userId)
-        .orElse(null);
-    String status = (entry != null && entry.getStatus() == QueueStatus.ACTIVATED)
-        ? "ACTIVATED" : "WAITING";
+    QueueEntry entry = queueEntryRepository.findByShowIdAndUserId(showId, userId).orElse(null);
 
+    // orphan Redis 상태(Redis에는 있는데 DB에 없음) 복구
+    if (entry == null) {
+      queueEntryWriter.tryInsert(showId, userId);
+      entry = queueEntryRepository.findByShowIdAndUserId(showId, userId).orElse(null);
+    }
+
+    boolean activated = entry != null && entry.getStatus() == QueueStatus.ACTIVATED;
+
+    // 진입 TX 실패로 rank ≤ 10임에도 WAITING 상태면 여기서 복구
+    if (!activated && entry != null && rank <= ACTIVATE_BATCH_SIZE) {
+      entry.activate();
+      eventPublisher.publishQueueActivated(new QueueEvent(showId, userId, rank));
+      activated = true;
+    }
+
+    String status = activated ? "ACTIVATED" : "WAITING";
     long estimatedWait = (rank - 1) * SECONDS_PER_PERSON;
 
     return new QueueStatusResponse(rank, total, estimatedWait, status);
