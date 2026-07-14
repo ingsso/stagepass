@@ -1,6 +1,8 @@
 package com.stagepass.admin.performance.service;
 
 import com.stagepass.admin.performance.dto.AdminShowResponse;
+import com.stagepass.admin.performance.dto.PerformanceCreateRequest;
+import com.stagepass.admin.performance.dto.PerformanceResponse;
 import com.stagepass.admin.performance.dto.ZoneRequest;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
@@ -10,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -17,9 +20,43 @@ import java.util.List;
 @RequiredArgsConstructor
 public class AdminPerformanceService {
 
+  private final PerformanceRepository performanceRepository;
   private final ShowRepository showRepository;
   private final ZoneRepository zoneRepository;
   private final SeatRepository seatRepository;
+
+  // 공연 + 회차 일괄 생성
+  @Transactional
+  public PerformanceResponse createPerformance(PerformanceCreateRequest request) {
+    Performance performance = performanceRepository.save(
+        Performance.builder()
+            .title(request.getTitle())
+            .genre(request.getGenre())
+            .description(request.getDescription())
+            .posterUrl(request.getPosterUrl())
+            .venueName(request.getVenueName())
+            .venueAddress(request.getVenueAddress())
+            .runningTime(request.getRunningTime())
+            .build()
+    );
+
+    List<Show> shows = new ArrayList<>();
+    if (request.getShowDatetimes() != null) {
+      for (var datetime : request.getShowDatetimes()) {
+        shows.add(showRepository.save(
+            Show.builder()
+                .performance(performance)
+                .showDatetime(datetime)
+                .totalSeats(0)
+                .status(ShowStatus.SCHEDULED)
+                .build()
+        ));
+      }
+    }
+
+    log.info("[Admin] performance created id={} title={} shows={}", performance.getId(), performance.getTitle(), shows.size());
+    return new PerformanceResponse(performance, shows);
+  }
 
   // 회차별 예매 현황 — 집계 쿼리 1회 (N+1 제거)
   @Transactional(readOnly = true)
