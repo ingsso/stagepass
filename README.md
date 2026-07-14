@@ -5,6 +5,7 @@
 ## 목차
 
 - [프로젝트 소개](#프로젝트-소개)
+- [데모 영상](#데모-영상)
 - [핵심 기술 과제](#핵심-기술-과제)
 - [기술 스택](#기술-스택)
 - [시스템 아키텍처](#시스템-아키텍처)
@@ -27,6 +28,34 @@
 **StagePass**는 뮤지컬, 콘서트 등 공연 티켓을 예매할 수 있는 플랫폼입니다.
 
 티켓팅 오픈 시 발생하는 **트래픽 폭증**과 **동시 좌석 선점** 문제를 Apache Kafka와 Redis를 활용해 해결하는 것에 초점을 맞췄습니다. 단순 CRUD를 넘어, 실제 서비스 수준의 동시성 제어·이벤트 기반 분산 처리·실시간 대기열을 직접 구현했습니다.
+
+<br>
+
+## 데모 영상
+
+### Scenario 1 — 일반 유저 예매 성공 플로우
+
+https://github.com/user-attachments/assets/scenario1-video
+
+> 대기열 진입 → 순번 확인 → 좌석 선택 → 결제 완료까지의 전체 플로우
+
+### Scenario 2 — 더블 부킹 버그 현장 (동시 좌석 선점)
+
+> 두 유저가 동일 좌석으로 나란히 결제창에 도착하는 동시성 충돌 시나리오
+
+**유저 A 시점**
+
+https://github.com/user-attachments/assets/scenario2-userA-video
+
+**유저 B 시점**
+
+https://github.com/user-attachments/assets/scenario2-userB-video
+
+### Scenario 3 — 관리자 공연 등록 플로우
+
+https://github.com/user-attachments/assets/scenario3-video
+
+> 어드민 페이지에서 공연 등록 → 회차 / 구역 / 좌석 일괄 생성까지의 플로우
 
 <br>
 
@@ -426,7 +455,7 @@ spring.data.redis.lettuce.pool:
 
 ## 부하 테스트 결과 (k6)
 
-로컬 환경(MacBook M2, Docker)에서 k6로 측정한 결과입니다.  
+로컬 환경(Windows 11 / Intel i7-1165G7 4C8T, RAM 16GB, Docker Desktop + WSL2)에서 k6로 측정한 결과입니다.  
 임계값을 코드로 정의하고(`thresholds`) 이를 초과하면 테스트가 자동 실패하도록 구성했습니다.  
 결과 JSON은 [`k6/results/`](k6/results/) 에 저장되어 있습니다.
 
@@ -525,6 +554,43 @@ p95 응답시간  : 1183ms
 ```
 
 > 1,000명이 동일 좌석에 동시 요청해도 **정확히 1명만 선점 성공** — Redis 원자성 검증 완료
+
+### 대기열 동시 진입 테스트 — Redis ZSET 순번 발급
+
+순번은 Redis Sorted Set에 `ZADD` 후 `ZRANK`로 조회해 발급합니다.
+DB INSERT는 `REQUIRES_NEW` 내부 트랜잭션으로 시도하고, 유니크 제약 위반 시 재진입으로 처리해 동시 진입 경쟁을 흡수합니다.
+
+| 항목 | 결과 |
+|------|------|
+| 동시 VU | **1,000명** |
+| 진입 성공 | **990건** |
+| 진입 실패 | 10건 (연결 실패 — 아래 참고) |
+| p95 응답시간 | 2,499ms (로컬 1000-VU 극한 환경) |
+| 처리율 | 242.8 req/s |
+
+실행 명령과 [`k6/results/queue-concurrency-result.json`](k6/results/queue-concurrency-result.json) 에 기록된 지표입니다.
+
+```bash
+k6 run k6/queue-concurrency-test.js -e BASE_URL=http://localhost:8080 -e SHOW_ID=1
+```
+
+| 지표 | 값 | 임계값 | 통과 |
+|------|-----|--------|------|
+| `queue_enter_success` | 990 | `count >= 950` | ✅ |
+| `http_req_failed` | 1.00% (10/1000) | `rate < 0.10` | ✅ |
+| `http_req_duration` p95 | 2,499ms | `p(95) < 3000` | ✅ |
+| `http_req_duration` avg / med / max | 1,870 / 2,183 / 3,068ms | — | — |
+| `http_reqs` | 1,000 (242.81/s) | — | — |
+
+실패 10건은 애플리케이션 에러가 아니라 **연결 단계 실패**입니다.
+전체 `http_req_duration`의 min이 0ms인 반면 `expected_response:true`의 min은 201ms로,
+해당 10건은 응답을 받지 못한 요청입니다. 단일 로컬 머신에서 1,000 VU를 띄울 때의 소켓 한계로,
+`http_req_blocked` p95가 300ms까지 오르는 것과 같은 원인입니다.
+이를 감안해 임계값을 `success >= 95%`, `http_req_failed < 10%`로 정의했고 세 임계값 모두 통과했습니다.
+
+> **순번 중복 여부는 이 테스트로 검증되지 않았습니다.** 스크립트의 중복 검사 로직이
+> k6의 VU별 독립 런타임 특성상 동작하지 않아(각 VU의 `ranks` 배열이 `handleSummary`에 전달되지 않음)
+> 항상 "중복 없음"을 출력합니다. 중복 방지는 ZSET 구조상 보장되지만, 실측 검증은 별도 과제로 남아 있습니다.
 
 <br>
 
