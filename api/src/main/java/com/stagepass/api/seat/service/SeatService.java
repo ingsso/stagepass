@@ -63,8 +63,11 @@ public class SeatService {
   @CacheEvict(value = "seat-list", key = "#showId")
   @Transactional
   public SeatHoldResponse holdSeats(Long showId, Long userId, SeatHoldRequest request) {
-    // 동일 회차 PENDING 예매 중복 선점 방지
-    if (reservationRepository.existsByUserIdAndShowIdAndStatus(userId, showId, ReservationStatus.PENDING)) {
+    // 요청한 좌석 중 이미 본인이 선점 중인 좌석이 있으면 거부
+    // (다른 좌석 선점은 허용 — 넓은 PENDING 체크는 동시성 시나리오에서 둘 다 차단하는 문제 발생)
+    boolean alreadyHoldsRequestedSeat = request.getSeatIds().stream()
+        .anyMatch(seatId -> String.valueOf(userId).equals(seatRedisRepository.getHolder(seatId)));
+    if (alreadyHoldsRequestedSeat) {
       throw new BusinessException(ErrorCode.DUPLICATE_SEAT_HOLD);
     }
 
@@ -101,21 +104,28 @@ public class SeatService {
         .mapToInt(seat -> seat.getZone().getPrice())
         .sum();
 
-    Reservation reservation = Reservation.builder()
-        .user(user)
-        .show(show)
-        .totalPrice(totalPrice)
-        .build();
-    reservationRepository.save(reservation);
+    Reservation reservation;
+    try {
+      reservation = Reservation.builder()
+          .user(user)
+          .show(show)
+          .totalPrice(totalPrice)
+          .build();
+      reservationRepository.save(reservation);
 
-    // ReservationSeat 일괄 저장
-    List<ReservationSeat> reservationSeats = seats.stream()
-        .map(seat -> ReservationSeat.builder()
-            .reservation(reservation)
-            .seat(seat)
-            .build())
-        .toList();
-    reservationSeatRepository.saveAll(reservationSeats);
+      // ReservationSeat 일괄 저장
+      List<ReservationSeat> reservationSeats = seats.stream()
+          .map(seat -> ReservationSeat.builder()
+              .reservation(reservation)
+              .seat(seat)
+              .build())
+          .toList();
+      reservationSeatRepository.saveAll(reservationSeats);
+    } catch (Exception e) {
+      // DB 저장 실패 시 Redis 락 해제 — ghost lock 방지 (@Transactional은 DB만 롤백)
+      heldIds.forEach(seatId -> seatRedisRepository.release(seatId, userId));
+      throw e;
+    }
 
     // Kafka 이벤트 발행
     long expiresAt = System.currentTimeMillis() + 300_000L;

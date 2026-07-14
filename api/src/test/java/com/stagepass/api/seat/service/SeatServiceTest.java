@@ -179,15 +179,14 @@ class SeatServiceTest {
   }
 
   @Test
-  @DisplayName("중복 선점 방지 — 동일 회차 PENDING 예매 존재 시 DUPLICATE_SEAT_HOLD 예외")
+  @DisplayName("중복 선점 방지 — 이미 본인이 선점 중인 좌석을 다시 요청하면 DUPLICATE_SEAT_HOLD 예외")
   void holdSeats_중복선점_예외() {
     Long userId = 1L;
     Long showId = 1L;
     SeatHoldRequest request = new SeatHoldRequest();
     ReflectionTestUtils.setField(request, "seatIds", List.of(10L));
 
-    given(reservationRepository.existsByUserIdAndShowIdAndStatus(userId, showId, ReservationStatus.PENDING))
-        .willReturn(true);
+    given(seatRedisRepository.getHolder(10L)).willReturn(String.valueOf(userId));
 
     assertThatThrownBy(() -> seatService.holdSeats(showId, userId, request))
         .isInstanceOf(BusinessException.class)
@@ -195,6 +194,57 @@ class SeatServiceTest {
         .isEqualTo(ErrorCode.DUPLICATE_SEAT_HOLD);
 
     then(seatRedisRepository).should(never()).hold(any(), any());
+  }
+
+  @Test
+  @DisplayName("중복 선점 아님 — 같은 회차에 다른 좌석을 선점 중이어도 새 좌석 선점은 허용")
+  void holdSeats_다른좌석_선점중이어도_허용() {
+    // 넓은 PENDING 검사(동일 회차에 PENDING 예매가 있으면 무조건 차단)는
+    // 동시 선점 시나리오에서 정상 요청까지 막았다. 요청한 좌석을 본인이 쥐고 있을 때만 막는다.
+    Long userId = 1L;
+    Long showId = 1L;
+    SeatHoldRequest request = new SeatHoldRequest();
+    ReflectionTestUtils.setField(request, "seatIds", List.of(10L, 11L));
+
+    given(userRepository.findById(userId)).willReturn(Optional.of(user));
+    given(showRepository.findById(showId)).willReturn(Optional.of(show));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
+    given(seatRedisRepository.getHolder(10L)).willReturn(null); // 요청 좌석은 본인이 잡고 있지 않음
+    given(seatRedisRepository.getHolder(11L)).willReturn(null);
+    given(seatRedisRepository.hold(10L, userId)).willReturn(true);
+    given(seatRedisRepository.hold(11L, userId)).willReturn(true);
+    given(reservationRepository.save(any())).willReturn(
+        Reservation.builder().user(user).show(show).totalPrice(200000).build()
+    );
+
+    SeatHoldResponse response = seatService.holdSeats(showId, userId, request);
+
+    assertThat(response.getHeldSeatIds()).containsExactlyInAnyOrder(10L, 11L);
+    then(reservationRepository).should().save(any());
+  }
+
+  @Test
+  @DisplayName("고스트 락 방지 — DB 저장 실패 시 선점한 Redis 락을 모두 해제")
+  void holdSeats_DB저장실패_Redis락해제() {
+    // @Transactional 은 DB 만 롤백한다. Redis 락을 직접 풀지 않으면
+    // 아무도 예매하지 못하는 좌석(ghost lock)이 TTL 만료까지 남는다.
+    Long userId = 1L;
+    Long showId = 1L;
+    SeatHoldRequest request = new SeatHoldRequest();
+    ReflectionTestUtils.setField(request, "seatIds", List.of(10L, 11L));
+
+    given(userRepository.findById(userId)).willReturn(Optional.of(user));
+    given(showRepository.findById(showId)).willReturn(Optional.of(show));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
+    given(seatRedisRepository.hold(10L, userId)).willReturn(true);
+    given(seatRedisRepository.hold(11L, userId)).willReturn(true);
+    given(reservationRepository.save(any())).willThrow(new RuntimeException("DB 저장 실패"));
+
+    assertThatThrownBy(() -> seatService.holdSeats(showId, userId, request))
+        .isInstanceOf(RuntimeException.class);
+
+    then(seatRedisRepository).should().release(10L, userId);
+    then(seatRedisRepository).should().release(11L, userId);
   }
 
   @Test
