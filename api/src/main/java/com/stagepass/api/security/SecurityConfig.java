@@ -47,6 +47,18 @@ public class SecurityConfig {
             // 인증 필요
             .anyRequest().authenticated()
         )
+        .exceptionHandling(ex -> ex
+            .accessDeniedHandler((request, response, e) -> {
+              response.setStatus(403);
+              response.setContentType("application/json;charset=UTF-8");
+              response.getWriter().write("{\"success\":false,\"data\":null,\"message\":\"접근 권한이 없습니다.\"}");
+            })
+            .authenticationEntryPoint((request, response, e) -> {
+              response.setStatus(401);
+              response.setContentType("application/json;charset=UTF-8");
+              response.getWriter().write("{\"success\":false,\"data\":null,\"message\":\"인증이 필요합니다.\"}");
+            })
+        )
         .addFilterBefore(
             new JwtAuthenticationFilter(jwtProvider),
             UsernamePasswordAuthenticationFilter.class
