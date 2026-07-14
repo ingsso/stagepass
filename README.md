@@ -68,7 +68,14 @@ https://github.com/user-attachments/assets/scenario3-video
 - TTL 5분 설정으로 미결제 시 자동 해제
 - Lua 스크립트(`GET + DEL`)로 선점 해제 시 race condition 방지
 - 선점 만료 이벤트를 Kafka로 발행해 DB 상태 동기화
-- 동일 회차 PENDING 예매 중복 선점 방지 (`existsByUserIdAndShowIdAndStatus`)
+- 중복 선점 방지 — **요청한 좌석을 본인이 이미 선점 중일 때만** 차단
+- 예매 저장 실패 시 잡아둔 Redis 락을 직접 해제 (**고스트 락 방지**)
+
+> 중복 선점 판정은 원래 "동일 회차에 PENDING 예매가 있으면 무조건 차단"이었습니다.
+> 이 규칙은 한 명이 여러 좌석을 나눠 선점하는 정상 요청까지 막아, 판정 범위를 요청 좌석으로 좁혔습니다.
+
+> `@Transactional`은 DB만 롤백합니다. 예매 저장이 실패하면 이미 잡은 Redis 좌석 락이 TTL(5분)
+> 만료까지 남아 **아무도 예매할 수 없는 좌석(고스트 락)** 이 됩니다. 저장 실패 시 선점한 락을 모두 해제합니다.
 
 ```
 좌석 선택 요청 (동시 N명)
@@ -253,18 +260,24 @@ shows
 | 회원가입 / 로그인 | JWT (Access 1h + Refresh 7d), Redis Refresh Token 관리 |
 | 토큰 재발급 / 로그아웃 | Refresh Token 검증, Redis 토큰 삭제 |
 | 공연 목록 조회 | 회차별 좌석 현황 포함 |
-| 좌석 선점 | Redis 원자적 선점 (SET NX), TTL 5분, 실패 시 전체 롤백, 중복 선점 방지 |
+| 좌석 선점 | Redis 원자적 선점 (SET NX), TTL 5분, 실패 시 전체 롤백 + Redis 락 해제, 중복 선점 방지 |
 | 결제 요청 | 토스페이먼츠 연동, Kafka 이벤트 발행 (동기 확인) |
 | 예매 내역 | JOIN FETCH로 N+1 방지 |
 | 실시간 알림 | SSE + Redis Pub/Sub — 예매 완료 / 결제 실패 / 대기열 입장 / 취소 대기 / 교환 완료 |
-| 대기열 | Redis Sorted Set 순번 발급, 실시간 순번 안내 |
+| 대기열 | Redis Sorted Set 순번 발급 (INCR 시퀀스 score — 순번 중복 없음), 실시간 순번 안내 |
 | 취소 대기 | Redis Sorted Set 기반 순번 추적, 예매 취소 시 1순위 자동 알림 |
 | 자리 교환 | 동일 회차 예매자 간 좌석 교환 제안/수락, 비관적 락으로 원자적 스왑 |
 
 ### 관리자 API
+
+모든 어드민 엔드포인트는 `anyRequest().hasRole("ADMIN")` 으로 보호됩니다.
+공연 등록은 어드민 서버(8081)의 `/admin/performances` 와, 프론트 호출 경로에 맞춘 별칭
+`/api/performances` 두 경로로 제공됩니다 (둘 다 어드민 전용).
+
 | 기능 | 설명 |
 |------|------|
-| 공연 등록 / 수정 / 삭제 | 공연 기본 정보 관리 |
+| 공연 등록 | 공연 + 회차 일괄 생성 (`showDatetimes` 목록 → SCHEDULED 회차 생성) |
+| 공연 수정 / 삭제 | 공연 기본 정보 관리 |
 | 회차 관리 | 날짜 / 시간, 총 좌석 수 설정 |
 | 구역 / 좌석 설정 | 등급별 가격, 행/열 기반 좌석 일괄 생성 |
 | 예매 현황 | 회차별 예매 목록 조회 (LEFT JOIN 단일 쿼리) |
@@ -325,16 +338,25 @@ shows
 ```
 Redis Sorted Set
   Key   : queue:{showId}
-  Score : 진입 timestamp
+  Score : queue:seq:{showId} 의 INCR 시퀀스  ← 진입 timestamp 아님
   Value : userId
 
 흐름
-  1. 사용자 접속 → 순번 발급 (ZADD)
+  1. 사용자 접속 → 순번 발급 (INCR → ZADD NX → ZRANK)
   2. SSE 연결 유지 → 현재 순번 실시간 전달
   3. 앞 사람 결제 완료 → queue-payment-group Consumer가 activateNextBatch() 호출
   4. queue.activated 발행 → Notification Consumer → Redis Pub/Sub → SSE push
   5. 입장 후 대기열에서 제거 (ZREM)
 ```
+
+**score 를 밀리초 타임스탬프로 쓰면 안 됩니다.** 동시 진입 시 같은 밀리초가 대량으로 발생하고,
+동점 멤버는 Redis 가 userId 사전순으로 정렬합니다. `ZADD` 와 `ZRANK` 는 별도 왕복이므로
+내가 `ZADD` 한 뒤 순번을 읽기 전에 같은 score 의 더 작은 userId 가 끼어들면 순번이 밀리고,
+**두 사용자가 같은 순번을 읽습니다.** (1,000명 동시 진입 실측: 중복 10건 / 누락 10건)
+
+회차별 `INCR` 시퀀스는 고유하고 단조 증가하므로 뒤에 들어온 멤버가 앞사람 순번을 밀 수 없습니다.
+`ZADD NX` 로 재진입(멱등 호출)이 기존 순번을 뒤로 밀어내지 않도록 합니다.
+→ 1,000명 동시 진입에서 **중복 0건 / 누락 0건** ([부하 테스트 결과](#대기열-동시-진입-테스트--순번-유일성-검증))
 
 <br>
 
@@ -679,7 +701,7 @@ cp payment/src/main/resources/application-local.yaml.example payment/src/main/re
 
 주요 테스트:
 - `AuthServiceTest` — 회원가입, 로그인, 토큰 재발급, 로그아웃 (9개)
-- `SeatServiceTest` — 좌석 선점 성공/실패/롤백/중복방지/해제 (6개)
+- `SeatServiceTest` — 좌석 선점 성공/실패/롤백/중복방지/고스트락해제/해제 (8개)
 - `SeatExchangeServiceTest` — 교환 제안/수락/거절/취소/데드락방지/락후재검증 (15개)
 - `PaymentServiceTest` — 결제 성공/실패/멱등성/취소 멱등성/Toss실패/역직렬화 (8개)
 - `PaymentCompletedQueueConsumerTest` — 결제완료 큐 활성화/포이즌필/예외 (4개)
@@ -689,4 +711,13 @@ cp payment/src/main/resources/application-local.yaml.example payment/src/main/re
 - `ReservationServiceTest` — 예매 취소/환불이벤트/권한 (3개)
 - `TransferServiceTest` — 양도 등록/수락/취소/락후재검증 (8개)
 - `WaitlistServiceTest` — 취소대기 등록/중복/상태조회/이탈/알림/DB실패복구 (8개)
+- `AdminPerformanceServiceTest` — 공연 등록 (회차 포함 / 회차 없음) (2개)
 - `SeatConcurrencyIntegrationTest` — **실제 Redis(Testcontainers)** 동시 선점 원자성 검증 (5개, Docker 없는 환경 자동 skip)
+
+부하 테스트(k6)의 대기열 순번 중복 검증은 별도 스크립트로 실행합니다:
+
+```bash
+k6 run --out json=k6/results/queue-raw.json k6/queue-concurrency-test.js \
+  -e BASE_URL=http://localhost:8080 -e SHOW_ID=1
+node k6/verify-ranks.js k6/results/queue-raw.json   # 중복 발견 시 exit 1
+```
