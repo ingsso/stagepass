@@ -14,22 +14,10 @@ spring:
     redis:
       host: localhost
       port: 6379
-      lettuce:
-        pool:
-          max-active: 20
-          max-idle: 10
-          min-idle: 2
-          max-wait: 1000ms
   kafka:
     bootstrap-servers: localhost:9092
     consumer:
-      group-id: stagepass-group
-
-jwt:
-  secret: your-jwt-secret-must-be-at-least-32-characters-long
-  expiration: 1800000
-  refresh-expiration: 604800000
+      group-id: payment-group
 
 toss:
   secret-key: your-toss-secret-key
-  client-key: your-toss-client-key
