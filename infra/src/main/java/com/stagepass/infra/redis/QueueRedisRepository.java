@@ -23,7 +23,7 @@ public class QueueRedisRepository {
    * 동점이 대량으로 발생하고, 동점 멤버는 Redis 가 사전순으로 정렬한다. ZADD 와 ZRANK 는
    * 별도 왕복이므로, 내가 ZADD 한 뒤 ZRANK 를 읽기 전에 같은 score 의 더 작은 userId 가
    * 끼어들면 내 순번이 밀린다 → 두 사용자가 같은 순번을 읽는다.
-   * (1,000 VU 부하에서 중복 순번 124건 실측)
+   * (1,000 VU 부하에서 중복 순번 10건 / 누락 10건 실측)
    *
    * INCR 시퀀스는 고유하고 단조 증가하므로 뒤에 들어온 멤버가 앞사람 순번을 밀 수 없다.
    * ZADD NX(addIfAbsent) 로 이미 있는 멤버의 score 는 갱신하지 않는다 —

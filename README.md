@@ -95,11 +95,12 @@ Reservation 저장 (PENDING) + seat.hold 이벤트 발행
 - **결제 취소 멱등성**: 이미 CANCELLED 상태이면 Toss API 재호출 없이 반환
 
 ### 🚦 3. 실시간 대기열
-티켓 오픈 순간 접속자를 순번 관리하고 입장 시점을 실시간으로 안내합니다.
+티켓 오픈 순간 접속자에게 순번을 발급하고, 입장 시점을 실시간으로 알립니다.
 
-- Redis Sorted Set으로 **진입 timestamp 기반 순번 관리**
-- SSE(Server-Sent Events) + **Redis Pub/Sub**으로 다중 인스턴스 환경에서 실시간 전달
-- 앞 사람 결제 완료마다 `queue.activated` 이벤트 발행, 다음 배치 자동 활성화
+- Redis Sorted Set으로 **회차별 `INCR` 시퀀스 기반 순번 관리** (고유·단조 증가 score — 동점 없음)
+- 앞 사람 결제 완료마다 `queue.activated` 이벤트 발행, 다음 배치(10명) 자동 활성화
+- **입장 허가**는 SSE(Server-Sent Events) + **Redis Pub/Sub**으로 다중 인스턴스 환경에서 push
+  (현재 순번 자체는 `GET /api/shows/{showId}/queue/status` 폴링으로 조회)
 
 ### 🔔 4. 취소 대기 & 자리 교환
 매진 이후에도 좌석을 얻을 수 있는 두 가지 경로를 제공합니다.
@@ -119,7 +120,7 @@ Reservation 저장 (PENDING) + seat.hold 이벤트 발행
 | Database | PostgreSQL 16 |
 | 결제 | 토스페이먼츠 |
 | 실시간 통신 | SSE (Server-Sent Events) + Redis Pub/Sub |
-| 인증 | JWT (Access 1h + Refresh 7d), BCrypt |
+| 인증 | JWT (Access 30m + Refresh 7d), BCrypt |
 | 회로 차단기 | resilience4j (`@CircuitBreaker`) |
 | API 문서 | SpringDoc OpenAPI (Swagger UI) |
 | 테스트 | JUnit 5, Mockito, Testcontainers |
@@ -152,17 +153,20 @@ graph TB
 
     API --> PG
     API --> Redis
-    API -->|seat.hold\nwaitlist.notified\nexchange.completed| Kafka
+    API -->|발행\npayment.requested\nqueue.activated\nnotification.send 외| Kafka
+    Kafka -->|구독\npayment.completed\npayment.failed| API
 
     Payment --> PG
-    Payment -->|payment.completed\npayment.failed| Kafka
+    Kafka -->|구독\npayment.requested\npayment.cancel.requested| Payment
+    Payment -->|발행\npayment.completed\npayment.failed| Kafka
 
-    Notification -->|queue.activated\npayment.*\nwaitlist.notified\nexchange.completed| Kafka
+    Kafka -->|구독\nnotification.send\nqueue.activated 외| Notification
     Notification --> Redis
 
     Admin --> PG
-    Admin --> Redis
 ```
+
+> 토픽별 발행·소비 주체 전체는 [Kafka 토픽 설계](#kafka-토픽-설계) 표를 참고하세요.
 
 ### 좌석 선점 시퀀스
 
@@ -173,25 +177,32 @@ sequenceDiagram
     participant R as Redis
     participant K as Kafka
     participant P as Payment
+    participant RC as reservation-group
 
     C->>A: POST /api/shows/{showId}/seats/hold
-    A->>A: 중복 PENDING 예매 체크 (existsByUserIdAndShowIdAndStatus)
-    A->>R: SET seat:{id}:holder NX PX 300000 (각 좌석)
+    A->>R: GET seat:hold:{seatId} — 요청 좌석을 본인이 이미 선점 중인지 확인
+    A->>R: SET seat:hold:{seatId} {userId} NX PX 300000 (각 좌석)
     alt 모든 좌석 선점 성공
-        A->>A: Reservation 저장 (PENDING)
-        A->>K: seat.hold 이벤트 발행 (sync .get(5s))
-        A-->>C: 200 OK (heldSeatIds)
-        K->>P: PaymentRequestedEvent
-        P->>P: Toss API 승인 요청 (CircuitBreaker 적용)
-        alt 결제 성공
-            P->>K: payment.completed
-        else 결제 실패
-            P->>K: payment.failed
-            P->>R: 좌석 선점 해제 (보상 트랜잭션)
-        end
+        A->>A: Reservation(PENDING) + ReservationSeat 저장
+        Note over A,R: 저장 실패 시 잡아둔 락 전체 해제 (고스트 락 방지)
+        A->>K: seat.hold 발행 (sync .get(5s))
+        A-->>C: 200 OK (heldSeatIds, expiresAt)
     else 일부 좌석 선점 실패
-        A->>R: 선점 성공한 좌석 전체 rollback (Lua 스크립트)
+        A->>R: 선점 성공한 좌석 전체 해제 (Lua GET+DEL)
         A-->>C: 409 SEAT_ALREADY_HELD
+    end
+
+    Note over C,RC: 결제는 별도 요청 — 선점과 같은 트랜잭션이 아님
+    C->>A: POST /api/payments/confirm
+    A->>K: payment.requested 발행 (sync .get(5s))
+    K->>P: payment-group 소비
+    P->>P: Toss API 승인 요청 (CircuitBreaker 적용)
+    alt 결제 성공
+        P->>K: payment.completed
+        K->>RC: 예매 CONFIRMED + 좌석 RESERVED
+    else 결제 실패
+        P->>K: payment.failed
+        K->>RC: 예매 만료 + Redis 선점 해제 (보상 트랜잭션)
     end
 ```
 
@@ -214,13 +225,19 @@ stagepass/
 **의존 관계**
 
 ```
-api, admin
-  └── domain, infra, kafka, payment, notification
-        └── common
+실행 가능 앱 (@SpringBootApplication)        의존 모듈
+──────────────────────────────────────────────────────────────
+api          :8080  ──▶  common, domain, infra, kafka
+admin        :8081  ──▶  common, domain, infra
+payment      :8082  ──▶  common, domain, infra, kafka
+notification :8083  ──▶  common, infra, kafka
 ```
 
-- `api`, `admin` 만 `@SpringBootApplication` 보유 (실행 가능 jar)
-- 나머지 모듈은 라이브러리 역할
+- **실행 가능 jar 는 4개** — `api`, `admin`, `payment`, `notification` 모두 독립 앱입니다
+- `common`, `domain`, `infra`, `kafka` 는 라이브러리 모듈 (앱이 아님)
+- `notification` 은 DB 를 쓰지 않아 `domain` 에 의존하지 않습니다
+  (`DataSourceAutoConfiguration` 을 명시적으로 제외)
+- 앱끼리는 서로 의존하지 않습니다 — 통신은 오직 Kafka 를 통해서만 이뤄집니다
 
 <br>
 
@@ -241,6 +258,9 @@ shows
   ├── queue_entries (대기열)
   ├── waitlist_entries (취소 대기)
   └── seat_exchanges (자리 교환 제안)
+
+reservations
+  └── transfers (양도)
 ```
 
 주요 설계 포인트
@@ -257,55 +277,69 @@ shows
 ### 사용자 API
 | 기능 | 설명 |
 |------|------|
-| 회원가입 / 로그인 | JWT (Access 1h + Refresh 7d), Redis Refresh Token 관리 |
+| 회원가입 / 로그인 | JWT (Access 30m + Refresh 7d), Redis Refresh Token 관리 |
 | 토큰 재발급 / 로그아웃 | Refresh Token 검증, Redis 토큰 삭제 |
 | 공연 목록 조회 | 회차별 좌석 현황 포함 |
 | 좌석 선점 | Redis 원자적 선점 (SET NX), TTL 5분, 실패 시 전체 롤백 + Redis 락 해제, 중복 선점 방지 |
 | 결제 요청 | 토스페이먼츠 연동, Kafka 이벤트 발행 (동기 확인) |
 | 예매 내역 | JOIN FETCH로 N+1 방지 |
-| 실시간 알림 | SSE + Redis Pub/Sub — 예매 완료 / 결제 실패 / 대기열 입장 / 취소 대기 / 교환 완료 |
-| 대기열 | Redis Sorted Set 순번 발급 (INCR 시퀀스 score — 순번 중복 없음), 실시간 순번 안내 |
+| 실시간 알림 | SSE + Redis Pub/Sub — 대기열 입장 / 취소 대기 / 교환 완료 / 양도 수락 / 선점 만료 |
+| 대기열 | Redis Sorted Set 순번 발급 (INCR 시퀀스 score — 순번 중복 없음), 입장 허가 SSE push + 순번 폴링 조회 |
 | 취소 대기 | Redis Sorted Set 기반 순번 추적, 예매 취소 시 1순위 자동 알림 |
 | 자리 교환 | 동일 회차 예매자 간 좌석 교환 제안/수락, 비관적 락으로 원자적 스왑 |
 
 ### 관리자 API
 
-모든 어드민 엔드포인트는 `anyRequest().hasRole("ADMIN")` 으로 보호됩니다.
-공연 등록은 어드민 서버(8081)의 `/admin/performances` 와, 프론트 호출 경로에 맞춘 별칭
-`/api/performances` 두 경로로 제공됩니다 (둘 다 어드민 전용).
+어드민 기능은 **두 서버에 나뉘어 있고, 보호 방식이 다릅니다.**
 
-| 기능 | 설명 |
-|------|------|
-| 공연 등록 | 공연 + 회차 일괄 생성 (`showDatetimes` 목록 → SCHEDULED 회차 생성) |
-| 공연 수정 / 삭제 | 공연 기본 정보 관리 |
-| 회차 관리 | 날짜 / 시간, 총 좌석 수 설정 |
-| 구역 / 좌석 설정 | 등급별 가격, 행/열 기반 좌석 일괄 생성 |
-| 예매 현황 | 회차별 예매 목록 조회 (LEFT JOIN 단일 쿼리) |
-| 대시보드 | 총 예매/확정/취소/매출/오늘통계 — 단일 집계 쿼리 |
+- **admin 서버(8081)** — `AdminSecurityConfig` 의 `anyRequest().hasRole("ADMIN")` 으로 일괄 보호
+  (예외: `/admin/auth/**`, Swagger)
+- **api 서버(8080)** — 공연 CUD 엔드포인트에 `@PreAuthorize("hasRole('ADMIN')")` 개별 적용
+  (`@EnableMethodSecurity` 활성화됨. 조회 API 는 비인증 허용)
+
+| 기능 | 서버 · 엔드포인트 | 설명 |
+|------|------------------|------|
+| 공연 등록 | 8081 `POST /admin/performances`<br>8081 `POST /api/performances` (별칭)<br>8080 `POST /api/performances` | 8081 은 공연 + 회차 일괄 생성 (`showDatetimes` → SCHEDULED 회차, `totalSeats=0`)<br>8080 은 공연만 생성 |
+| 공연 수정 / 삭제 | 8080 `PUT` · `DELETE /api/performances/{id}` | 공연 기본 정보 관리 |
+| 회차 등록 | 8080 `POST /api/performances/{id}/shows` | 날짜 / 시간, 총 좌석 수 설정 |
+| 회차 상태 변경 | 8081 `PATCH /admin/performances/shows/{showId}/status` | SCHEDULED → ON_SALE → CLOSED |
+| 구역 / 좌석 설정 | 8081 `POST /admin/performances/shows/{showId}/zones` | 등급별 가격, 행/열 기반 좌석 일괄 생성 |
+| 예매 현황 | 8081 `GET /admin/performances/{performanceId}/shows/stats` | 회차별 확정 예매 수 집계 (LEFT JOIN + GROUP BY 단일 쿼리) |
+| 대시보드 | 8081 `GET /admin/dashboard` | 총 예매/확정/취소/매출/오늘통계 — 6회 → 1회 단일 집계 쿼리 |
+
+> 공연 등록 경로가 3개인 것은 프론트 호출 경로(`/api/performances`)를 8081·8080 양쪽에서 받아주기 때문입니다.
+> 8081 의 별칭만 회차 일괄 생성을 지원하므로, 실제 등록은 8081 경로를 사용합니다.
 
 <br>
 
 ## Kafka 토픽 설계
 
-| 토픽 | 발행 주체 | 소비 주체 | 설명 |
-|------|-----------|-----------|------|
-| `ticket.seat.hold` | api | kafka | 좌석 임시 선점 기록 |
-| `ticket.seat.hold.expired` | kafka (TTL) | kafka | 선점 만료 처리 |
-| `ticket.seat.released` | kafka | kafka | 선점 해제 |
-| `payment.requested` | api | payment | 결제 요청 |
-| `payment.completed` | payment | kafka, notification, api(queue) | 결제 성공 |
-| `payment.failed` | payment | kafka, notification | 결제 실패 → 보상 트랜잭션 |
-| `payment.cancel.requested` | api | payment | 결제 취소 요청 |
-| `reservation.confirmed` | kafka | notification | 예매 최종 확정 |
-| `reservation.cancelled` | api | kafka, notification | 예매 취소 |
-| `notification.send` | 각 Consumer | notification | 알림 발송 요청 |
-| `queue.entered` | api | kafka | 대기열 진입 |
-| `queue.activated` | kafka | notification | 입장 허가 |
-| `waitlist.notified` | api | notification | 취소 대기 1순위 알림 |
-| `exchange.completed` | api | notification | 자리 교환 완료 알림 (양측) |
+| 토픽 | 발행 | 소비 (Consumer Group) | 설명 |
+|------|------|----------------------|------|
+| `ticket.seat.hold` | api | — | 좌석 임시 선점 기록 (발행만) |
+| `ticket.seat.hold.expired` | api (만료 스케줄러) | kafka · `seat-group` ¹ | 선점 만료 통지 |
+| `payment.requested` | api | payment · `payment-group` | 결제 요청 |
+| `payment.completed` | payment | kafka · `reservation-group`<br>api · `queue-payment-group`<br>kafka · `seat-group` ¹ | 결제 성공 → 예매 확정 + 다음 배치 활성화 |
+| `payment.failed` | payment | kafka · `reservation-group`<br>api · `waitlist-group`<br>kafka · `seat-group` ¹ | 결제 실패 → 보상 트랜잭션 + 취소 대기 알림 |
+| `payment.cancel.requested` | api | payment · `payment-cancel-group` | 결제 취소 요청 |
+| `reservation.cancelled` | api | — | 예매 취소 (발행만) |
+| `notification.send` | api (만료 스케줄러, 양도) | notification · `notification-group` | 알림 발송 요청 |
+| `queue.entered` | api | — | 대기열 진입 (발행만) |
+| `queue.activated` | api | kafka · `queue-group`<br>notification · `notification-group` | 입장 허가 → DB 상태 갱신 + SSE 알림 |
+| `transfer.claimed` | api | notification · `notification-group` | 양도 수락 알림 |
+| `waitlist.notified` | api | notification · `notification-group` | 취소 대기 1순위 알림 |
+| `exchange.completed` | api | notification · `notification-group` | 자리 교환 완료 알림 (양측) |
+
+¹ `seat-group` 핸들러는 현재 로그만 남깁니다. 좌석 상태 확정·복원은 `reservation-group` 이,
+선점 해제는 Redis TTL 만료가 담당합니다.
+
+> `KafkaTopics` 에 상수만 정의되어 있고 발행·소비가 모두 없는 토픽: `ticket.seat.released`, `reservation.confirmed`.
+> `ticket.seat.hold` · `queue.entered` · `reservation.cancelled` 은 발행되지만 아직 구독자가 없습니다 — 후속 기능을 위한 이벤트 로그입니다.
 
 **Consumer Group 분리 설계**
-- `payment.completed` 토픽을 `reservation-group`(예매 확정)과 `queue-payment-group`(대기열 활성화)이 독립 소비 → 각 로직 독립 처리
+- `payment.completed` 를 `reservation-group`(예매 확정)과 `queue-payment-group`(다음 배치 활성화)이 독립 소비 → 각 로직이 서로를 막지 않고 개별 재시도
+- `payment.failed` 를 `reservation-group`(보상 트랜잭션)과 `waitlist-group`(취소 대기 1순위 알림)이 독립 소비
+- 알림은 별도 앱(notification :8083)이 `notification-group` 으로 전담 → 알림 장애가 예매·결제 처리를 막지 않음
 
 <br>
 
@@ -322,14 +356,18 @@ shows
          └── 실패 → payment.failed 발행
         ↓
 4-A. payment.completed
-   ├── reservation-group     : DB 예매 확정
+   ├── reservation-group     : 예매 CONFIRMED + 좌석 RESERVED 확정
    ├── queue-payment-group   : 다음 대기열 배치 활성화
-   └── Notification Consumer : 완료 알림 발송
+   └── seat-group            : 로그만 기록
 
 4-B. payment.failed (보상 트랜잭션)
-   ├── Seat Consumer         : Redis 선점 해제
-   └── Notification Consumer : 실패 알림 발송
+   ├── reservation-group     : 예매 만료 처리 + Redis 선점 해제
+   ├── waitlist-group        : 취소 대기 1순위에게 알림 (waitlist.notified 발행)
+   └── seat-group            : 로그만 기록
 ```
+
+> 결제 성공·실패 시점에 **구매자에게 직접 가는 SSE 알림은 아직 없습니다.**
+> 현재 SSE로 전달되는 이벤트는 입장 허가·취소 대기·자리 교환·양도·선점 만료 5종입니다.
 
 <br>
 
@@ -434,6 +472,21 @@ catch (JsonProcessingException e) {
 }
 ```
 
+적용 범위 — 재시도가 의미 있는 Consumer에만 이 패턴을 씁니다.
+
+| Consumer | 역직렬화 실패 | 그 외 예외 |
+|----------|--------------|-----------|
+| `PaymentService` (payment-group, payment-cancel-group) | ack 후 드랍 | 재시도 |
+| `PaymentCompletedQueueConsumer` (queue-payment-group) | ack 후 드랍 | 재시도 |
+| `PaymentFailureConsumer` (waitlist-group) | ack 후 드랍 | 재시도 |
+| `NotificationConsumer` (notification-group) | ack 후 드랍 | 재시도 |
+| `QueueEventConsumer` · `SeatEventConsumer` | ack 후 드랍 | **ack 후 드랍** (부가 기능 — 손실 허용) |
+| `ReservationEventConsumer` (reservation-group) | **재시도** | 재시도 |
+
+> `ReservationEventConsumer` 는 예매 확정·보상 트랜잭션을 담당해 유실이 허용되지 않으므로
+> 모든 예외를 재시도로 넘깁니다. 다만 이 때문에 **역직렬화 불가 메시지가 들어오면 무한 재시도에 빠집니다**
+> — DLQ 도입 전까지 남아 있는 알려진 한계입니다.
+
 ### 회로 차단기 (resilience4j)
 Toss API 장애 시 모든 결제 요청이 타임아웃 대기하는 연쇄 장애를 방지합니다.
 ```yaml
@@ -483,14 +536,38 @@ spring.data.redis.lettuce.pool:
 
 ### 처리량 테스트 — 좌석 목록 조회 API
 
-**병목 원인**: 좌석마다 구역 정보를 별도 조회하는 N+1 쿼리  
-**해결**: JOIN FETCH 쿼리 통합 + Redis `@Cacheable` (TTL 10s) + Redis Pipeline TTL 일괄 조회
+**병목 원인** — 최적화 전 `getSeats()` 는 회차의 구역을 조회한 뒤, 구역마다 좌석을 다시 조회하고,
+**좌석 1건마다 Redis 에 TTL 을 따로 물었습니다.** 150석 회차면 요청 1건당 Redis 왕복이 150회입니다.
+목표 200 RPS 에서는 초당 3만 회 — 여기서 무너집니다.
+
+```java
+// 최적화 전 (c2e7b4f)
+for (Zone zone : zoneRepository.findByShowId(showId)) {          // 구역별 쿼리
+  for (Seat seat : seatRepository.findByZoneId(zone.getId())) {
+    long ttl = seatRedisRepository.getRemainingTtl(seat.getId()); // ← 좌석마다 Redis 왕복
+  }
+}
+```
+
+**해결**: JOIN FETCH 쿼리 통합 + Redis Pipeline TTL 일괄 조회(N회 → 1회) + `@Cacheable` (TTL 10s)
+
+동일 스크립트·동일 데이터(회차 1, 150석)로 최적화 전 커밋(`c2e7b4f`)을 재측정한 결과입니다.
 
 | 항목 | 최적화 전 | 최적화 후 |
 |------|-----------|-----------|
-| p95 응답시간 | 임계값 초과 | **10ms** |
-| 에러율 | - | **0.01%** 미만 |
-| 총 요청 수 | - | 12,949건 |
+| p95 응답시간 | 6,863ms | **10ms** (약 700배) |
+| p90 응답시간 | 6,800ms | 7ms |
+| 중앙값 | 5,564ms | 5ms |
+| 최대 응답시간 | 9,418ms | 688ms |
+| 처리량 | 63.8 req/s | **103.6 req/s** (+62%) |
+| 총 요청 수 | 8,274건 | 12,949건 |
+| 에러율 | 0.00% | 0.01% |
+| `thresholds` | ❌ p95<2s · p99<3s **실패** | ✅ 전체 통과 |
+
+> 최적화 전에는 에러 없이 **전부 느립니다** — 요청이 실패하는 게 아니라 200 RPS 목표를 63.8 req/s 로밖에
+> 소화하지 못해 응답이 초 단위로 밀립니다. 두 측정 모두 결과 JSON을 남겼습니다:
+> [`throughput-before-summary.json`](k6/results/throughput-before-summary.json) ·
+> [`throughput-result.json`](k6/results/throughput-result.json)
 
 ```
 $ k6 run k6/throughput-test.js -e BASE_URL=http://localhost:8080 -e SHOW_ID=1
@@ -661,16 +738,29 @@ docker-compose up -d
 | PostgreSQL | 5432 |
 | Redis | 6379 |
 | Kafka | 9092 |
-| Zookeeper | 2181 |
+| Zookeeper | (호스트 미공개 — 컨테이너 내부 2181) |
 
 ### 2. 설정 파일 생성
 
+`application-local.yaml`은 gitignore 대상이므로, 4개 모듈 모두 템플릿에서 복사해야 합니다.
+
 ```bash
-cp api/src/main/resources/application-local.yaml.example api/src/main/resources/application-local.yaml
-cp payment/src/main/resources/application-local.yaml.example payment/src/main/resources/application-local.yaml
+cp api/src/main/resources/application-local.yaml.example          api/src/main/resources/application-local.yaml
+cp admin/src/main/resources/application-local.yaml.example        admin/src/main/resources/application-local.yaml
+cp payment/src/main/resources/application-local.yaml.example      payment/src/main/resources/application-local.yaml
+cp notification/src/main/resources/application-local.yaml.example notification/src/main/resources/application-local.yaml
 ```
 
-`application-local.yaml`에서 JWT 시크릿, Toss API 키를 설정합니다.
+복사한 파일에서 아래 값을 채웁니다.
+
+| 모듈 | 설정해야 할 값 |
+|------|----------------|
+| api | DB 계정, JWT 시크릿(32자 이상), Toss API 키 |
+| admin | DB 계정, JWT 시크릿(32자 이상) |
+| payment | DB 계정, Toss 시크릿 키 |
+| notification | 없음 (Kafka 설정만 사용 — 복사만 하면 됨) |
+
+DB 계정은 `docker-compose.yml` 기본값 기준으로 `stagepass` / `stagepass1234` 입니다.
 
 ### 3. 애플리케이션 실행
 
@@ -706,6 +796,8 @@ cp payment/src/main/resources/application-local.yaml.example payment/src/main/re
 - `PaymentServiceTest` — 결제 성공/실패/멱등성/취소 멱등성/Toss실패/역직렬화 (8개)
 - `PaymentCompletedQueueConsumerTest` — 결제완료 큐 활성화/포이즌필/예외 (4개)
 - `PaymentFailureConsumerTest` — 결제실패 대기알림/포이즌필/예외 (4개)
+- `ApiPaymentServiceTest` — 결제 승인 이벤트 발행/금액 불일치/orderId 만료/중복 orderId (4개)
+- `PerformanceServiceTest` — 공연 목록·검색 페이징/상세 조회/등록/삭제 (5개)
 - `QueueServiceTest` — 대기열 진입/순번/입장 허가/퇴장 (12개)
 - `ReservationExpirySchedulerTest` — 만료 배치처리/큐엔트리삭제/스케줄러 (5개)
 - `ReservationServiceTest` — 예매 취소/환불이벤트/권한 (3개)
