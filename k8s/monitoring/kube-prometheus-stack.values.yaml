@@ -1,0 +1,78 @@
+# kube-prometheus-stack 설치 값 (데모 클러스터 기준)
+#
+# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# helm install monitoring prometheus-community/kube-prometheus-stack \
+#   -n monitoring --create-namespace -f k8s/monitoring/kube-prometheus-stack.values.yaml
+#
+# 로컬 k3d(Docker 8GB)에서 기본값 그대로 설치하면 메모리가 빠듯합니다.
+# 데모에 필요 없는 컴포넌트를 끄고 보관 기간을 줄였습니다.
+
+# 알림 발송은 이번 스코프가 아닙니다 (Pod 1개 + 설정 부담 제거)
+alertmanager:
+  enabled: false
+
+prometheus:
+  prometheusSpec:
+    # 데모라 짧게 — 영속 볼륨 없이 emptyDir 를 쓰므로 Pod 재시작 시 어차피 사라집니다
+    retention: 6h
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits:   { cpu: "1",  memory: 1536Mi }
+
+    # ★ 기본값(true)이면 release 라벨이 이 차트와 일치하는 ServiceMonitor 만 수집합니다.
+    #   우리 앱 차트가 만드는 ServiceMonitor 도 잡히도록 false 로 둡니다.
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+
+grafana:
+  enabled: true
+  # 데모 전용 로그인. 운영이면 Secret 으로 주입하거나 OAuth 를 붙입니다.
+  adminPassword: stagepass
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits:   { cpu: 500m, memory: 512Mi }
+  # JVM/Spring Boot 대시보드를 자동으로 받아옵니다 (grafana.com 대시보드 ID 기준)
+  dashboardProviders:
+    dashboardproviders.yaml:
+      apiVersion: 1
+      providers:
+        - name: default
+          orgId: 1
+          folder: ""
+          type: file
+          disableDeletion: false
+          editable: true
+          options:
+            path: /var/lib/grafana/dashboards/default
+  dashboards:
+    default:
+      spring-boot-statistics:
+        gnetId: 6756      # Spring Boot Statistics (JVM, HikariCP, HTTP)
+        revision: 1
+        datasource: Prometheus
+      jvm-micrometer:
+        gnetId: 4701      # JVM (Micrometer)
+        revision: 10
+        datasource: Prometheus
+
+# k3s 는 컨트롤플레인 컴포넌트를 호스트에 노출하지 않아 아래 수집 대상은 항상 실패합니다.
+# 대시보드에 빨간 타깃이 남는 걸 막기 위해 끕니다.
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeProxy:
+  enabled: false
+kubeEtcd:
+  enabled: false
+
+prometheus-node-exporter:
+  resources:
+    requests: { cpu: 20m, memory: 32Mi }
+    limits:   { cpu: 200m, memory: 128Mi }
+
+kube-state-metrics:
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits:   { cpu: 200m, memory: 256Mi }

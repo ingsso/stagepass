@@ -43,6 +43,14 @@ secrets:
   dbPassword: stagepass1234
   jwtSecret: k8s-demo-secret-key-must-be-at-least-32-characters-long
 
+# 관측 연동
+monitoring:
+  serviceMonitor:
+    # kube-prometheus-stack(Prometheus Operator)이 설치되어 ServiceMonitor CRD 가
+    # 있는 클러스터에서만 켜세요. CRD 가 없으면 ArgoCD sync 가 실패합니다.
+    enabled: true
+    interval: 15s
+
 probes:
   # startupProbe 로 느린 기동을 흡수합니다.
   # 이게 없으면 liveness 가 기동 중인 Pod 를 죽여 CrashLoop 에 빠집니다.

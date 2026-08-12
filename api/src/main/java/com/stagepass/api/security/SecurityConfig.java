@@ -46,6 +46,9 @@ public class SecurityConfig {
             .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
             // K8s 프로브 (liveness/readiness) — 인증 없이 접근 가능해야 함
             .requestMatchers("/actuator/health/**").permitAll()
+            // Prometheus 스크레이프 — 클러스터 내부에서만 접근하는 ClusterIP 경유.
+            // 외부 노출 시에는 인증을 걸거나 별도 management 포트로 분리해야 합니다.
+            .requestMatchers("/actuator/prometheus").permitAll()
             // 인증 필요
             .anyRequest().authenticated()
         )
