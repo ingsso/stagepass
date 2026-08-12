@@ -44,6 +44,8 @@ public class SecurityConfig {
             .requestMatchers(HttpMethod.GET, "/api/shows/**").permitAll()
             // Swagger
             .requestMatchers("/swagger-ui/**", "/v3/api-docs/**", "/swagger-ui.html").permitAll()
+            // K8s 프로브 (liveness/readiness) — 인증 없이 접근 가능해야 함
+            .requestMatchers("/actuator/health/**").permitAll()
             // 인증 필요
             .anyRequest().authenticated()
         )

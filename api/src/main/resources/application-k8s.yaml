@@ -1,0 +1,66 @@
+# Kubernetes 배포 전용 프로파일
+#
+# application-local.yaml 은 gitignore 대상이라 컨테이너 이미지에 포함되지 않습니다.
+# 이 파일은 저장소에 커밋되며, 실제 값은 전부 환경변수(ConfigMap / Secret)로 주입받습니다.
+spring:
+  datasource:
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: org.postgresql.Driver
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    show-sql: false
+  data:
+    redis:
+      host: ${REDIS_HOST}
+      port: ${REDIS_PORT:6379}
+      lettuce:
+        pool:
+          max-active: 20
+          max-idle: 10
+          min-idle: 2
+          max-wait: 1000ms
+  kafka:
+    # ★ 비워두면 안 됩니다.
+    # infra/kafka 모듈의 설정·Producer·Consumer 가 전부
+    # @ConditionalOnProperty("spring.kafka.bootstrap-servers") 로 묶여 있어,
+    # 이 값이 없으면 EventPublisher 빈이 사라지고 EventPublisher 를 필수 주입받는
+    # 8개 서비스(Seat/Queue/Reservation/Payment/Waitlist/Transfer/Exchange 등)가
+    # 생성되지 못해 api 컨텍스트가 기동하지 않습니다.
+    #
+    # 참고: spring.kafka.listener.auto-startup 으로 컨슈머만 끄는 방법은 이 프로젝트에서
+    # 통하지 않습니다. infra 의 KafkaConsumerConfig 가 컨테이너 팩토리를 직접 정의하고 있어
+    # Boot 자동설정의 listener 속성이 반영되지 않기 때문입니다.
+    # 따라서 클러스터에 브로커를 반드시 띄워야 합니다 (k8s/deps/kafka.yaml).
+    bootstrap-servers: ${KAFKA_BOOTSTRAP_SERVERS:kafka:9092}
+    consumer:
+      group-id: ${KAFKA_CONSUMER_GROUP:stagepass-group}
+
+jwt:
+  secret: ${JWT_SECRET}
+  expiration: ${JWT_EXPIRATION:1800000}
+  refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
+
+cors:
+  allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true          # /actuator/health/{liveness,readiness} 활성화
+      show-details: always     # 로컬 데모 클러스터 기준. 운영이면 when-authorized 로 좁힐 것
+      group:
+        readiness:
+          # 기본 readiness 그룹은 readinessState 만 봅니다.
+          # DB/Redis 가 끊긴 Pod 로 트래픽이 가지 않도록 명시적으로 포함합니다.
+          include: readinessState,db,redis
