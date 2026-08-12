@@ -1,0 +1,40 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: stagepass
+  namespace: argocd
+  finalizers:
+    # Application 을 지우면 배포된 리소스도 함께 정리합니다.
+    # 없으면 Application 만 사라지고 워크로드가 클러스터에 고아로 남습니다.
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: default
+
+  source:
+    repoURL: https://github.com/ingsso/stagepass.git
+    targetRevision: develop
+    path: charts/stagepass
+    helm:
+      # 차트 디렉터리 안의 values.yaml 은 자동 적용됩니다.
+      # prod 로 전환하려면 아래를 values-prod.yaml 로 바꿔 커밋하면 됩니다 — 그게 GitOps 입니다.
+      valueFiles:
+        - values.yaml
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: default
+
+  syncPolicy:
+    automated:
+      # Git 에서 사라진 리소스를 클러스터에서도 삭제
+      prune: true
+      # 클러스터를 직접 손대도 Git 상태로 되돌림 (Git = Single Source of Truth)
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+    retry:
+      limit: 3
+      backoff:
+        duration: 10s
+        factor: 2
+        maxDuration: 2m

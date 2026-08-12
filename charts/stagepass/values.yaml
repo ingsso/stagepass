@@ -8,7 +8,7 @@ image:
   tag: "0.1.0"
   pullPolicy: IfNotPresent   # k3d 로 import 한 로컬 이미지를 쓰기 위한 기본값
 
-replicaCount: 2
+replicaCount: 3
 
 # Spring 프로파일 — application-k8s.yaml 을 읽습니다
 springProfile: k8s
