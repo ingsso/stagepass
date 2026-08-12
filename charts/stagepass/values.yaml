@@ -2,10 +2,10 @@
 # prod 는 values-prod.yaml 로 필요한 값만 덮어씁니다.
 
 image:
-  repository: stagepass-api
+  repository: ghcr.io/ingsso/stagepass-api
   # 비워두면 Chart.yaml 의 appVersion 을 사용합니다.
   # CI(.github/workflows/cd.yaml)가 커밋 SHA 로 이 줄을 자동 갱신합니다.
-  tag: "0.1.0"
+  tag: "006c4fa"
   pullPolicy: IfNotPresent   # k3d 로 import 한 로컬 이미지를 쓰기 위한 기본값
 
 replicaCount: 3
