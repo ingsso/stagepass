@@ -4,6 +4,10 @@ metadata:
   name: {{ include "stagepass.fullname" . }}
   labels:
     {{- include "stagepass.labels" . | nindent 4 }}
+    # ServiceMonitor 의 selector 는 Pod 가 아니라 "Service" 를 고릅니다.
+    # 이 라벨이 없으면 ServiceMonitor 가 아무 Service 도 못 찾아
+    # 에러 없이 조용히 수집 대상이 0건이 됩니다.
+    app.kubernetes.io/component: api
 spec:
   type: {{ .Values.service.type }}
   selector:
