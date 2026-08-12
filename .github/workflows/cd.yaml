@@ -1,0 +1,118 @@
+name: CD (build → GHCR → chart bump)
+
+on:
+  push:
+    branches: [develop]
+    # ★ 무한 트리거 방지의 핵심.
+    # 이 워크플로우는 마지막에 charts/stagepass/values.yaml 을 고쳐 커밋합니다.
+    # 그 커밋이 다시 이 워크플로우를 돌리면 루프가 됩니다.
+    # 배포 산출물 경로를 전부 무시 목록에 넣어 끊습니다.
+    #
+    # (이중 안전장치가 하나 더 있습니다: GITHUB_TOKEN 으로 만든 push 는
+    #  GitHub 정책상 새 워크플로우를 트리거하지 않습니다.)
+    paths-ignore:
+      - 'charts/**'
+      - 'k8s/**'
+      - 'argocd/**'
+      - 'k6/**'
+      - 'docs/**'
+      - '**.md'
+  workflow_dispatch:
+
+# 같은 브랜치에서 여러 실행이 겹치면 태그 범프 커밋이 충돌합니다.
+concurrency:
+  group: cd-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  IMAGE_NAME: stagepass-api
+
+jobs:
+  build-push-bump:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write     # values.yaml 범프 커밋 push 용
+      packages: write     # GHCR push 용
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: gradle
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build api bootJar
+        run: ./gradlew :api:bootJar
+
+      - name: Compute image coordinates
+        id: meta
+        run: |
+          # GHCR 경로는 소문자만 허용합니다 (저장소 소유자가 대문자를 포함할 수 있음)
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          echo "image=ghcr.io/${OWNER}/${IMAGE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "tag=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build & push image
+        uses: docker/build-push-action@v6
+        with:
+          context: ./api          # api/Dockerfile 이 build/libs 를 상대 경로로 참조
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}
+            ${{ steps.meta.outputs.image }}:latest
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: Bump image in Helm values (CI → CD 연결 고리)
+        run: |
+          set -euo pipefail
+          VALUES=charts/stagepass/values.yaml
+
+          # image: 블록 바로 아래 2칸 들여쓰기 라인만 정확히 겨냥합니다.
+          sed -i "s|^  repository: .*|  repository: ${{ steps.meta.outputs.image }}|" "$VALUES"
+          sed -i "s|^  tag: .*|  tag: \"${{ steps.meta.outputs.tag }}\"|" "$VALUES"
+
+          echo "--- 변경 결과 ---"
+          sed -n '1,12p' "$VALUES"
+
+          # 실제로 바뀌었는지 확인 (sed 가 조용히 아무것도 안 바꾸는 사고 방지)
+          grep -q "^  tag: \"${{ steps.meta.outputs.tag }}\"$" "$VALUES"
+
+      - name: Commit & push bump
+        run: |
+          set -euo pipefail
+          if git diff --quiet; then
+            echo "변경 없음 — 이미 같은 태그입니다. 건너뜁니다."
+            exit 0
+          fi
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -am "ci: 이미지 태그를 ${{ steps.meta.outputs.tag }} 로 범프 [skip ci]"
+          git push
+
+      - name: Summary
+        run: |
+          {
+            echo "### 배포 파이프라인 완주"
+            echo ""
+            echo "| 항목 | 값 |"
+            echo "|---|---|"
+            echo "| 이미지 | \`${{ steps.meta.outputs.image }}:${{ steps.meta.outputs.tag }}\` |"
+            echo "| 커밋 | \`${GITHUB_SHA::7}\` |"
+            echo ""
+            echo "ArgoCD 가 values.yaml 변경을 감지하면 클러스터에 자동 반영됩니다."
+          } >> "$GITHUB_STEP_SUMMARY"
