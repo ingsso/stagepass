@@ -13,6 +13,7 @@ public final class KafkaTopics {
   public static final String PAYMENT_REQUESTED = "payment.requested";
   public static final String PAYMENT_COMPLETED = "payment.completed";
   public static final String PAYMENT_FAILED = "payment.failed";
+  public static final String PAYMENT_CANCEL_REQUESTED = "payment.cancel.requested";
 
   // 예매
   public static final String RESERVATION_CONFIRMED = "reservation.confirmed";
@@ -24,4 +25,13 @@ public final class KafkaTopics {
   // 대기열
   public static final String QUEUE_ENTERED = "queue.entered";
   public static final String QUEUE_ACTIVATED = "queue.activated";
+
+  // 양도
+  public static final String TRANSFER_CLAIMED = "transfer.claimed";
+
+  // 취소 대기
+  public static final String WAITLIST_NOTIFIED = "waitlist.notified";
+
+  // 자리 교환
+  public static final String EXCHANGE_COMPLETED = "exchange.completed";
 }

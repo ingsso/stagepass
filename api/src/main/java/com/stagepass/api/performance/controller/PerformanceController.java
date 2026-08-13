@@ -6,7 +6,12 @@ import com.stagepass.common.response.ApiResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -22,11 +27,12 @@ public class PerformanceController {
 
   @Operation(summary = "공연 목록 조회", description = "전체 공연 목록을 조회합니다. keyword 파라미터로 공연명 검색이 가능합니다.")
   @GetMapping
-  public ResponseEntity<ApiResponse<List<PerformanceResponse>>> getAll(
-      @Parameter(description = "공연명 검색어 (선택)") @RequestParam(required = false) String keyword) {
-    List<PerformanceResponse> result = (keyword != null)
-        ? performanceService.search(keyword)
-        : performanceService.getAll();
+  public ResponseEntity<ApiResponse<Page<PerformanceResponse>>> getAll(
+      @Parameter(description = "공연명 검색어 (선택)") @RequestParam(required = false) String keyword,
+      @PageableDefault(size = 20, sort = "id") Pageable pageable) {
+    Page<PerformanceResponse> result = (keyword != null)
+        ? performanceService.search(keyword, pageable)
+        : performanceService.getAll(pageable);
     return ResponseEntity.ok(ApiResponse.ok(result));
   }
 
@@ -44,22 +50,24 @@ public class PerformanceController {
     return ResponseEntity.ok(ApiResponse.ok(performanceService.getShows(id)));
   }
 
-  // 어드민 전용 — 실제로는 admin 모듈로 분리, 여기선 임시 제공
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "공연 등록", description = "새로운 공연을 등록합니다. (어드민 전용)")
   @PostMapping
   public ResponseEntity<ApiResponse<PerformanceResponse>> create(
-      @RequestBody PerformanceRequest request) {
+      @Valid @RequestBody PerformanceRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(performanceService.create(request)));
   }
 
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "공연 수정", description = "공연 정보를 수정합니다. (어드민 전용)")
   @PutMapping("/{id}")
   public ResponseEntity<ApiResponse<PerformanceResponse>> update(
       @Parameter(description = "공연 ID") @PathVariable Long id,
-      @RequestBody PerformanceRequest request) {
+      @Valid @RequestBody PerformanceRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(performanceService.update(id, request)));
   }
 
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "공연 삭제", description = "공연을 삭제합니다. (어드민 전용)")
   @DeleteMapping("/{id}")
   public ResponseEntity<ApiResponse<Void>> delete(
@@ -68,11 +76,12 @@ public class PerformanceController {
     return ResponseEntity.ok(ApiResponse.ok());
   }
 
+  @PreAuthorize("hasRole('ADMIN')")
   @Operation(summary = "회차 등록", description = "특정 공연에 새로운 회차를 추가합니다. (어드민 전용)")
   @PostMapping("/{id}/shows")
   public ResponseEntity<ApiResponse<ShowResponse>> createShow(
       @Parameter(description = "공연 ID") @PathVariable Long id,
-      @RequestBody ShowRequest request) {
+      @Valid @RequestBody ShowRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(performanceService.createShow(id, request)));
   }
 }

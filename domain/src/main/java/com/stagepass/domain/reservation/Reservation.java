@@ -1,5 +1,7 @@
 package com.stagepass.domain.reservation;
 
+import com.stagepass.common.exception.BusinessException;
+import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.common.BaseEntity;
 import com.stagepass.domain.performance.Show;
 import com.stagepass.domain.user.User;
@@ -11,7 +13,10 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Entity
-@Table(name = "reservations")
+@Table(name = "reservations", indexes = {
+    @Index(name = "idx_reservations_user_id", columnList = "user_id"),
+    @Index(name = "idx_reservations_status_expires_at", columnList = "status, expires_at")
+})
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class Reservation extends BaseEntity {
@@ -38,7 +43,8 @@ public class Reservation extends BaseEntity {
   private LocalDateTime reservedAt;
   private LocalDateTime expiresAt;   // 선점 만료 시각
 
-  @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL)
+  @OneToMany(mappedBy = "reservation", cascade = CascadeType.ALL, orphanRemoval = true)
+  @org.hibernate.annotations.BatchSize(size = 30)
   private List<ReservationSeat> reservationSeats = new ArrayList<>();
 
   @Builder
@@ -52,14 +58,27 @@ public class Reservation extends BaseEntity {
   }
 
   public void confirm() {
+    if (this.status != ReservationStatus.PENDING) {
+      throw new BusinessException(ErrorCode.RESERVATION_STATUS_INVALID);
+    }
     this.status = ReservationStatus.CONFIRMED;
   }
 
   public void cancel() {
+    if (this.status == ReservationStatus.CANCELLED || this.status == ReservationStatus.EXPIRED) {
+      throw new BusinessException(ErrorCode.RESERVATION_STATUS_INVALID);
+    }
     this.status = ReservationStatus.CANCELLED;
   }
 
   public void expire() {
+    if (this.status != ReservationStatus.PENDING) {
+      return; // 이미 확정/취소/만료된 경우 멱등 처리
+    }
     this.status = ReservationStatus.EXPIRED;
+  }
+
+  public void transferTo(User newOwner) {
+    this.user = newOwner;
   }
 }

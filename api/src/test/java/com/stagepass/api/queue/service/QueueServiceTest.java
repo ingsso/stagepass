@@ -27,12 +27,14 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -49,6 +51,7 @@ class QueueServiceTest {
   @Mock private ShowRepository showRepository;
   @Mock private UserRepository userRepository;
   @Mock private EventPublisher eventPublisher;
+  @Mock private QueueEntryWriter queueEntryWriter;
 
   private static final Long SHOW_ID = 1L;
   private static final Long USER_ID = 1L;
@@ -89,7 +92,7 @@ class QueueServiceTest {
     given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
     given(queueRedisRepository.getRank(SHOW_ID, USER_ID)).willReturn(null, 15L); // 첫 호출: null(신규), 두 번째: rank
     given(queueRedisRepository.getSize(SHOW_ID)).willReturn(20L);
-    given(showRepository.getReferenceById(SHOW_ID)).willReturn(show);
+    given(queueEntryWriter.tryInsert(SHOW_ID, USER_ID)).willReturn(true); // INSERT 성공 = 신규 진입
 
     // when
     QueueEnterResponse response = queueService.enter(SHOW_ID, USER_ID);
@@ -99,7 +102,7 @@ class QueueServiceTest {
     assertThat(response.getTotal()).isEqualTo(20L);
     assertThat(response.isActivated()).isFalse();
     then(queueRedisRepository).should().enter(SHOW_ID, USER_ID);
-    then(queueEntryRepository).should().save(any(QueueEntry.class));
+    then(queueEntryWriter).should().tryInsert(SHOW_ID, USER_ID);
     then(eventPublisher).should().publishQueueEntered(any(QueueEvent.class));
     then(eventPublisher).should(never()).publishQueueActivated(any());
   }
@@ -112,9 +115,11 @@ class QueueServiceTest {
     given(userRepository.findById(USER_ID)).willReturn(Optional.of(user));
     given(queueRedisRepository.getRank(SHOW_ID, USER_ID)).willReturn(null, 5L); // rank=5, 즉시 입장
     given(queueRedisRepository.getSize(SHOW_ID)).willReturn(5L);
-    given(showRepository.getReferenceById(SHOW_ID)).willReturn(show);
+    given(queueEntryWriter.tryInsert(SHOW_ID, USER_ID)).willReturn(true); // INSERT 성공 = 신규 진입
+    // 첫 조회(기존 진입 확인)는 비어 있고, INSERT 후 활성화 시점에 조회되면 엔트리가 있다
     given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, USER_ID))
-        .willReturn(Optional.of(QueueEntry.builder().show(show).user(user).rank(5).build()));
+        .willReturn(Optional.empty(),
+                    Optional.of(QueueEntry.builder().show(show).user(user).rank(5).build()));
 
     // when
     QueueEnterResponse response = queueService.enter(SHOW_ID, USER_ID);
@@ -185,8 +190,10 @@ class QueueServiceTest {
   @DisplayName("대기열 순번 조회 - 대기 중 상태")
   void getStatus_대기중() {
     // given
-    QueueEntry entry = QueueEntry.builder().show(show).user(user).rank(5).build();
-    given(queueRedisRepository.getRank(SHOW_ID, USER_ID)).willReturn(5L);
+    // 순번이 활성화 배치(10) 밖이어야 WAITING 으로 남는다.
+    // 배치 이내(rank ≤ 10)면 getStatus 가 stuck 복구를 위해 즉시 활성화한다.
+    QueueEntry entry = QueueEntry.builder().show(show).user(user).rank(15).build();
+    given(queueRedisRepository.getRank(SHOW_ID, USER_ID)).willReturn(15L);
     given(queueRedisRepository.getSize(SHOW_ID)).willReturn(20L);
     given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, USER_ID))
         .willReturn(Optional.of(entry)); // status = WAITING (기본값)
@@ -195,10 +202,10 @@ class QueueServiceTest {
     QueueStatusResponse response = queueService.getStatus(SHOW_ID, USER_ID);
 
     // then
-    assertThat(response.getRank()).isEqualTo(5L);
+    assertThat(response.getRank()).isEqualTo(15L);
     assertThat(response.getTotal()).isEqualTo(20L);
     assertThat(response.getStatus()).isEqualTo("WAITING");
-    assertThat(response.getEstimatedWaitSeconds()).isEqualTo(4 * 30L); // (rank-1) * 30
+    assertThat(response.getEstimatedWaitSeconds()).isEqualTo(14 * 30L); // (rank-1) * 30
   }
 
   @Test
@@ -245,11 +252,8 @@ class QueueServiceTest {
     // given
     given(queueRedisRepository.getTop(SHOW_ID, 10))
         .willReturn(Set.of("101", "102", "103"));
-    given(queueRedisRepository.getRank(SHOW_ID, 101L)).willReturn(1L);
-    given(queueRedisRepository.getRank(SHOW_ID, 102L)).willReturn(2L);
-    given(queueRedisRepository.getRank(SHOW_ID, 103L)).willReturn(3L);
-    given(queueEntryRepository.findByShowIdAndUserId(any(), any()))
-        .willReturn(Optional.empty()); // entry 없어도 Kafka는 발행
+    given(queueEntryRepository.findByShowIdAndUserIdIn(eq(SHOW_ID), any()))
+        .willReturn(List.of()); // DB 엔트리 없어도 이벤트는 발행됨
 
     // when
     queueService.activateNextBatch(SHOW_ID);
@@ -300,9 +304,8 @@ class QueueServiceTest {
     given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, USER_ID))
         .willReturn(Optional.of(entry));
     given(queueRedisRepository.getTop(SHOW_ID, 10)).willReturn(Set.of("200"));
-    given(queueRedisRepository.getRank(SHOW_ID, 200L)).willReturn(1L);
-    given(queueEntryRepository.findByShowIdAndUserId(SHOW_ID, 200L))
-        .willReturn(Optional.empty());
+    given(queueEntryRepository.findByShowIdAndUserIdIn(eq(SHOW_ID), any()))
+        .willReturn(List.of());
 
     // when
     queueService.leave(SHOW_ID, USER_ID);

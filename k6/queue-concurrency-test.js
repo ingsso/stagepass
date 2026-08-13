@@ -16,8 +16,9 @@
  */
 
 import http from 'k6/http';
+import exec from 'k6/execution';
 import { check } from 'k6';
-import { Counter, Rate } from 'k6/metrics';
+import { Counter, Rate, Trend } from 'k6/metrics';
 import { SharedArray } from 'k6/data';
 
 // 200만 정상 응답 (이미 진입한 경우 등 예외는 failCount 로 추적)
@@ -33,6 +34,14 @@ const testData = new SharedArray('testData', function () {
 
 const successCount  = new Counter('queue_enter_success');
 const failCount     = new Counter('queue_enter_fail');
+
+// 발급된 순번을 메트릭으로 방출한다.
+// k6는 VU마다 독립된 JS 런타임을 쓰므로 모듈 스코프 배열은 VU 간 공유되지 않고
+// handleSummary 에도 전달되지 않는다. 메트릭은 k6 엔진이 VU 경계를 넘어 수집하므로,
+// `--out json` 원시 출력에서 개별 순번 값을 전수 집계해 중복을 검증한다.
+//   k6 run --out json=k6/results/queue-raw.json k6/queue-concurrency-test.js ...
+//   node k6/verify-ranks.js k6/results/queue-raw.json
+const rankTrend = new Trend('queue_rank');
 
 export const options = {
   scenarios: {
@@ -50,12 +59,20 @@ export const options = {
   },
 };
 
-// 수집된 순번 목록 (중복 검증용)
-const ranks = [];
-
 export default function () {
-  const data  = testData[0];
-  const token = data.tokens[__VU - 1] || data.tokens[0];
+  const data = testData[0];
+
+  // 토큰은 __VU 가 아니라 이터레이션 번호로 고른다.
+  // shared-iterations 는 이터레이션을 VU 에 1:1 로 배분하지 않는다 — 빠른 VU 가 여러 개를
+  // 가져가고 어떤 VU 는 하나도 실행하지 않는다. __VU 로 토큰을 고르면 같은 유저가 두 번 진입해
+  // 서버가 (정상적으로) 같은 순번을 반환하고, 그게 '중복 순번' 으로 잘못 집계된다.
+  // iterationInTest 는 테스트 전체에서 이터레이션마다 고유하므로 1인 1토큰이 보장된다.
+  const token = data.tokens[exec.scenario.iterationInTest];
+  if (!token) {
+    console.error(`토큰 부족: iteration=${exec.scenario.iterationInTest} tokens=${data.tokens.length}`);
+    failCount.add(1);
+    return;
+  }
 
   const res = http.post(
     `${BASE_URL}/api/shows/${SHOW_ID}/queue`,
@@ -84,7 +101,7 @@ export default function () {
       const rank = JSON.parse(res.body).data?.rank;
       if (rank) {
         successCount.add(1);
-        ranks.push(rank);
+        rankTrend.add(rank);
       } else {
         failCount.add(1);
       }
@@ -100,17 +117,15 @@ export default function () {
 export function handleSummary(data) {
   const success = data.metrics.queue_enter_success?.values?.count || 0;
   const p95     = data.metrics.http_req_duration?.values?.['p(95)'] || 0;
-
-  // 중복 순번 검증
-  const uniqueRanks = new Set(ranks);
-  const hasDuplicate = uniqueRanks.size < ranks.length;
+  const rank    = data.metrics.queue_rank?.values || {};
 
   console.log('\n========== 대기열 동시 진입 테스트 결과 ==========');
   console.log(`총 진입 시도  : ${VU_COUNT}명`);
   console.log(`성공          : ${success}명`);
-  console.log(`발급된 순번   : ${ranks.sort((a, b) => a - b).join(', ')}`);
-  console.log(`중복 순번 발생: ${hasDuplicate ? '❌ 발생! (중복: ' + (ranks.length - uniqueRanks.size) + '건)' : '✅ 없음'}`);
+  console.log(`발급 순번 범위: ${rank.min ?? '-'} ~ ${rank.max ?? '-'}`);
   console.log(`p95 응답시간  : ${p95.toFixed(0)}ms`);
+  console.log('중복 순번 검증: verify-ranks.js 로 원시 출력을 전수 검사 (아래 명령)');
+  console.log('  node k6/verify-ranks.js k6/results/queue-raw.json');
   console.log('==================================================\n');
 
   return {

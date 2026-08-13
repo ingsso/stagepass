@@ -1,0 +1,81 @@
+# StagePass 기본값 (dev 환경 기준)
+# prod 는 values-prod.yaml 로 필요한 값만 덮어씁니다.
+
+image:
+  repository: ghcr.io/ingsso/stagepass-api
+  # 비워두면 Chart.yaml 의 appVersion 을 사용합니다.
+  # CI(.github/workflows/cd.yaml)가 커밋 SHA 로 이 줄을 자동 갱신합니다.
+  tag: "ad4e1f6"
+  pullPolicy: IfNotPresent   # k3d 로 import 한 로컬 이미지를 쓰기 위한 기본값
+
+replicaCount: 3
+
+# Spring 프로파일 — application-k8s.yaml 을 읽습니다
+springProfile: k8s
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+
+service:
+  type: ClusterIP
+  port: 80
+  targetPort: 8080
+
+# 애플리케이션 설정 (ConfigMap 으로 주입)
+config:
+  dbUrl: jdbc:postgresql://postgres:5432/stagepass
+  dbUsername: stagepass
+  redisHost: redis
+  redisPort: "6379"
+  kafkaBootstrapServers: kafka:9092
+  kafkaConsumerGroup: stagepass-group
+  corsAllowedOrigins: "http://localhost:3000,http://localhost:5173"
+
+# 민감값 (Secret 으로 주입)
+# ⚠️ 데모 전용 더미값입니다. 운영에서는 Sealed Secrets / External Secrets 로 관리하세요.
+secrets:
+  create: true
+  dbPassword: stagepass1234
+  jwtSecret: k8s-demo-secret-key-must-be-at-least-32-characters-long
+
+# 관측 연동
+monitoring:
+  serviceMonitor:
+    # kube-prometheus-stack(Prometheus Operator)이 설치되어 ServiceMonitor CRD 가
+    # 있는 클러스터에서만 켜세요. CRD 가 없으면 ArgoCD sync 가 실패합니다.
+    enabled: true
+    interval: 15s
+
+probes:
+  # startupProbe 로 느린 기동을 흡수합니다.
+  # 이게 없으면 liveness 가 기동 중인 Pod 를 죽여 CrashLoop 에 빠집니다.
+  startup:
+    periodSeconds: 5
+    failureThreshold: 30      # 5s × 30 = 최대 150초 대기
+  liveness:
+    periodSeconds: 10
+    failureThreshold: 3
+  readiness:
+    periodSeconds: 5
+    failureThreshold: 3
+
+# 인클러스터 의존 서비스 (데모 스코프)
+# 실무에서는 전부 false 로 두고 RDS / ElastiCache / MSK 를 바라보게 합니다.
+dependencies:
+  postgres:
+    enabled: true
+    image: postgres:16
+    database: stagepass
+  redis:
+    enabled: true
+    image: redis:7-alpine
+  kafka:
+    enabled: true
+    image: apache/kafka:3.8.0
+    clusterId: "5L6g3nShT-eMCtK--X86sw"
+    heapOpts: "-Xmx512m -Xms512m"

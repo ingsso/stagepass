@@ -1,0 +1,17 @@
+apiVersion: v2
+name: stagepass
+description: StagePass 공연 티켓 예매 시스템 — Kubernetes 배포 차트
+type: application
+
+# 차트 자체의 버전 (템플릿 구조가 바뀌면 올립니다)
+version: 0.1.0
+
+# 배포되는 애플리케이션의 기본 버전.
+# values.yaml 의 image.tag 가 비어 있으면 이 값이 이미지 태그로 쓰입니다.
+appVersion: "0.1.0"
+
+keywords:
+  - spring-boot
+  - kafka
+  - redis
+  - gitops

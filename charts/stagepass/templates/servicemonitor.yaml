@@ -1,0 +1,21 @@
+{{- if .Values.monitoring.serviceMonitor.enabled }}
+# Prometheus 가 이 앱의 /actuator/prometheus 를 수집하도록 등록합니다.
+#
+# ServiceMonitor 는 kube-prometheus-stack(Prometheus Operator)이 설치한 CRD 입니다.
+# 그래서 monitoring.serviceMonitor.enabled 기본값은 false 입니다 —
+# Operator 없이 이 차트를 배포하면 CRD 가 없어 sync 가 실패하기 때문입니다.
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "stagepass.fullname" . }}
+  labels:
+    {{- include "stagepass.labels" . | nindent 4 }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "stagepass.apiSelectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: http                  # Service 의 포트 이름
+      path: /actuator/prometheus
+      interval: {{ .Values.monitoring.serviceMonitor.interval }}
+{{- end }}

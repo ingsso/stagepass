@@ -1,5 +1,6 @@
 package com.stagepass.api.payment.controller;
 
+import jakarta.validation.Valid;
 import com.stagepass.api.payment.dto.*;
 import com.stagepass.api.payment.service.ApiPaymentService;
 import com.stagepass.common.response.ApiResponse;
@@ -24,7 +25,7 @@ public class PaymentController {
   @PostMapping("/init")
   public ResponseEntity<ApiResponse<PaymentInitResponse>> initPayment(
       @AuthenticationPrincipal Long userId,
-      @RequestBody PaymentInitRequest request) {
+      @Valid @RequestBody PaymentInitRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(apiPaymentService.initPayment(userId, request)));
   }
 
@@ -32,7 +33,7 @@ public class PaymentController {
   @PostMapping("/confirm")
   public ResponseEntity<ApiResponse<Void>> confirmPayment(
       @AuthenticationPrincipal Long userId,
-      @RequestBody PaymentConfirmRequest request) {
+      @Valid @RequestBody PaymentConfirmRequest request) {
     apiPaymentService.confirmPayment(userId, request);
     return ResponseEntity.ok(ApiResponse.ok());
   }

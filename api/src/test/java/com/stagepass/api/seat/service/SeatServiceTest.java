@@ -5,10 +5,7 @@ import com.stagepass.api.seat.dto.SeatHoldResponse;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.performance.*;
-import com.stagepass.domain.reservation.Reservation;
-import com.stagepass.domain.reservation.ReservationRepository;
-import com.stagepass.domain.reservation.ReservationSeat;
-import com.stagepass.domain.reservation.ReservationSeatRepository;
+import com.stagepass.domain.reservation.*;
 import com.stagepass.domain.user.User;
 import com.stagepass.domain.user.UserRepository;
 import com.stagepass.domain.user.UserRole;
@@ -21,6 +18,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.cache.Cache;
+import org.springframework.cache.CacheManager;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.List;
@@ -29,9 +28,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
 @ExtendWith(MockitoExtension.class)
@@ -48,6 +47,8 @@ class SeatServiceTest {
   @Mock private UserRepository userRepository;
   @Mock private SeatRedisRepository seatRedisRepository;
   @Mock private EventPublisher eventPublisher;
+  @Mock private CacheManager cacheManager;
+  @Mock private Cache cache;
 
   private User user;
   private Show show;
@@ -101,8 +102,7 @@ class SeatServiceTest {
     given(showRepository.findById(showId)).willReturn(Optional.of(show));
     given(seatRedisRepository.hold(10L, userId)).willReturn(true);
     given(seatRedisRepository.hold(11L, userId)).willReturn(true);
-    given(seatRepository.findById(10L)).willReturn(Optional.of(seat1));
-    given(seatRepository.findById(11L)).willReturn(Optional.of(seat2));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
     given(reservationRepository.save(any())).willReturn(
         Reservation.builder().user(user).show(show).totalPrice(200000).build()
     );
@@ -128,6 +128,7 @@ class SeatServiceTest {
 
     given(userRepository.findById(userId)).willReturn(Optional.of(user));
     given(showRepository.findById(showId)).willReturn(Optional.of(show));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
     given(seatRedisRepository.hold(10L, userId)).willReturn(true);   // 10번 선점 성공
     given(seatRedisRepository.hold(11L, userId)).willReturn(false);  // 11번 이미 선점됨
 
@@ -175,5 +176,97 @@ class SeatServiceTest {
         .isInstanceOf(BusinessException.class)
         .extracting("errorCode")
         .isEqualTo(ErrorCode.SHOW_NOT_FOUND);
+  }
+
+  @Test
+  @DisplayName("중복 선점 방지 — 이미 본인이 선점 중인 좌석을 다시 요청하면 DUPLICATE_SEAT_HOLD 예외")
+  void holdSeats_중복선점_예외() {
+    Long userId = 1L;
+    Long showId = 1L;
+    SeatHoldRequest request = new SeatHoldRequest();
+    ReflectionTestUtils.setField(request, "seatIds", List.of(10L));
+
+    given(seatRedisRepository.getHolder(10L)).willReturn(String.valueOf(userId));
+
+    assertThatThrownBy(() -> seatService.holdSeats(showId, userId, request))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.DUPLICATE_SEAT_HOLD);
+
+    then(seatRedisRepository).should(never()).hold(any(), any());
+  }
+
+  @Test
+  @DisplayName("중복 선점 아님 — 같은 회차에 다른 좌석을 선점 중이어도 새 좌석 선점은 허용")
+  void holdSeats_다른좌석_선점중이어도_허용() {
+    // 넓은 PENDING 검사(동일 회차에 PENDING 예매가 있으면 무조건 차단)는
+    // 동시 선점 시나리오에서 정상 요청까지 막았다. 요청한 좌석을 본인이 쥐고 있을 때만 막는다.
+    Long userId = 1L;
+    Long showId = 1L;
+    SeatHoldRequest request = new SeatHoldRequest();
+    ReflectionTestUtils.setField(request, "seatIds", List.of(10L, 11L));
+
+    given(userRepository.findById(userId)).willReturn(Optional.of(user));
+    given(showRepository.findById(showId)).willReturn(Optional.of(show));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
+    given(seatRedisRepository.getHolder(10L)).willReturn(null); // 요청 좌석은 본인이 잡고 있지 않음
+    given(seatRedisRepository.getHolder(11L)).willReturn(null);
+    given(seatRedisRepository.hold(10L, userId)).willReturn(true);
+    given(seatRedisRepository.hold(11L, userId)).willReturn(true);
+    given(reservationRepository.save(any())).willReturn(
+        Reservation.builder().user(user).show(show).totalPrice(200000).build()
+    );
+
+    SeatHoldResponse response = seatService.holdSeats(showId, userId, request);
+
+    assertThat(response.getHeldSeatIds()).containsExactlyInAnyOrder(10L, 11L);
+    then(reservationRepository).should().save(any());
+  }
+
+  @Test
+  @DisplayName("고스트 락 방지 — DB 저장 실패 시 선점한 Redis 락을 모두 해제")
+  void holdSeats_DB저장실패_Redis락해제() {
+    // @Transactional 은 DB 만 롤백한다. Redis 락을 직접 풀지 않으면
+    // 아무도 예매하지 못하는 좌석(ghost lock)이 TTL 만료까지 남는다.
+    Long userId = 1L;
+    Long showId = 1L;
+    SeatHoldRequest request = new SeatHoldRequest();
+    ReflectionTestUtils.setField(request, "seatIds", List.of(10L, 11L));
+
+    given(userRepository.findById(userId)).willReturn(Optional.of(user));
+    given(showRepository.findById(showId)).willReturn(Optional.of(show));
+    given(seatRepository.findAllByIdWithZone(List.of(10L, 11L))).willReturn(List.of(seat1, seat2));
+    given(seatRedisRepository.hold(10L, userId)).willReturn(true);
+    given(seatRedisRepository.hold(11L, userId)).willReturn(true);
+    given(reservationRepository.save(any())).willThrow(new RuntimeException("DB 저장 실패"));
+
+    assertThatThrownBy(() -> seatService.holdSeats(showId, userId, request))
+        .isInstanceOf(RuntimeException.class);
+
+    then(seatRedisRepository).should().release(10L, userId);
+    then(seatRedisRepository).should().release(11L, userId);
+  }
+
+  @Test
+  @DisplayName("선점 해제 — Redis 해제 + showId 캐시 무효화")
+  void releaseSeats_성공() {
+    Long userId = 1L;
+    Long reservationId = 99L;
+
+    Reservation reservation = Reservation.builder().user(user).show(show).totalPrice(100000).build();
+    ReflectionTestUtils.setField(reservation, "id", reservationId);
+
+    ReservationSeat rs = ReservationSeat.builder().reservation(reservation).seat(seat1).build();
+
+    given(reservationRepository.findByIdAndUserId(reservationId, userId))
+        .willReturn(Optional.of(reservation));
+    given(reservationSeatRepository.findByReservationId(reservationId))
+        .willReturn(List.of(rs));
+    given(cacheManager.getCache("seat-list")).willReturn(cache);
+
+    seatService.releaseSeats(reservationId, userId);
+
+    then(seatRedisRepository).should().release(seat1.getId(), userId);
+    then(cache).should().evict(show.getId());
   }
 }

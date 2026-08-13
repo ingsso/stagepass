@@ -28,6 +28,8 @@ public class KafkaProducerConfig {
     config.put(ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG, StringSerializer.class);
     config.put(ProducerConfig.ACKS_CONFIG, "all");          // 메시지 유실 방지
     config.put(ProducerConfig.RETRIES_CONFIG, 3);
+    config.put(ProducerConfig.RETRY_BACKOFF_MS_CONFIG, 1000);
+    config.put(ProducerConfig.MAX_IN_FLIGHT_REQUESTS_PER_CONNECTION, 5);
     return new DefaultKafkaProducerFactory<>(config);
   }
 

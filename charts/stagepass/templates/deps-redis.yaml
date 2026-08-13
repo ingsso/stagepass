@@ -1,0 +1,51 @@
+{{- if .Values.dependencies.redis.enabled }}
+# 데모 스코프의 인클러스터 Redis (영속화 없음).
+# 실무에서는 enabled=false 로 끄고 ElastiCache 엔드포인트를 config.redisHost 에 넣습니다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  labels:
+    {{- include "stagepass.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  selector:
+    app.kubernetes.io/component: redis
+    {{- include "stagepass.selectorLabels" . | nindent 4 }}
+  ports:
+    - port: 6379
+      targetPort: 6379
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  labels:
+    {{- include "stagepass.labels" . | nindent 4 }}
+    app.kubernetes.io/component: redis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: redis
+      {{- include "stagepass.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/component: redis
+        {{- include "stagepass.selectorLabels" . | nindent 8 }}
+    spec:
+      containers:
+        - name: redis
+          image: {{ .Values.dependencies.redis.image | quote }}
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "ping"]
+            initialDelaySeconds: 3
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 300m, memory: 256Mi }
+{{- end }}

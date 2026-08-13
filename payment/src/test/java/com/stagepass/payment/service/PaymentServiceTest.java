@@ -1,7 +1,9 @@
 package com.stagepass.payment.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stagepass.domain.payment.Payment;
 import com.stagepass.domain.payment.PaymentRepository;
+import com.stagepass.domain.payment.PaymentStatus;
 import com.stagepass.domain.performance.Performance;
 import com.stagepass.domain.performance.Show;
 import com.stagepass.domain.performance.ShowStatus;
@@ -9,6 +11,7 @@ import com.stagepass.domain.reservation.Reservation;
 import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.user.User;
 import com.stagepass.domain.user.UserRole;
+import com.stagepass.kafka.event.PaymentCancelEvent;
 import com.stagepass.kafka.event.PaymentRequestedEvent;
 import com.stagepass.kafka.event.PaymentResultEvent;
 import com.stagepass.kafka.producer.EventPublisher;
@@ -27,6 +30,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import java.time.LocalDateTime;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
@@ -43,6 +47,7 @@ class PaymentServiceTest {
   @Mock private ReservationRepository reservationRepository;
   @Mock private TossPaymentClient tossPaymentClient;
   @Mock private EventPublisher eventPublisher;
+  @Mock private ObjectMapper objectMapper;
 
   private Reservation reservation;
   private PaymentRequestedEvent event;
@@ -139,5 +144,95 @@ class PaymentServiceTest {
     then(tossPaymentClient).should(never()).confirm(any());
     then(eventPublisher).should(never()).publishPaymentCompleted(any());
     then(eventPublisher).should(never()).publishPaymentFailed(any());
+  }
+
+  @Test
+  @DisplayName("취소 멱등성 — 이미 CANCELLED 상태이면 Toss API 미호출")
+  void cancelPayment_이미취소됨_멱등처리() {
+    Payment cancelledPayment = Payment.builder()
+        .reservation(reservation)
+        .tossOrderId("order_abc")
+        .amount(100000)
+        .build();
+    ReflectionTestUtils.invokeMethod(cancelledPayment, "cancel"); // status → CANCELLED
+
+    given(paymentRepository.findByReservationId(1L)).willReturn(Optional.of(cancelledPayment));
+
+    paymentService.cancelPayment(1L);
+
+    then(tossPaymentClient).should(never()).cancel(any(), any(), any());
+  }
+
+  @Test
+  @DisplayName("취소 처리 — Toss API 실패 시 DB 상태 변경 없이 예외 전파")
+  void cancelPayment_TossAPI실패_DB상태변경없음() {
+    Payment payment = Payment.builder()
+        .reservation(reservation)
+        .tossOrderId("order_abc")
+        .amount(100000)
+        .build();
+    ReflectionTestUtils.setField(payment, "tossPaymentKey", "payment_key_xyz");
+
+    given(paymentRepository.findByReservationId(1L)).willReturn(Optional.of(payment));
+    willThrow(new RuntimeException("Toss 취소 실패"))
+        .given(tossPaymentClient).cancel(any(), any(), any());
+
+    assertThatThrownBy(() -> paymentService.cancelPayment(1L))
+        .isInstanceOf(RuntimeException.class);
+
+    // DB 상태가 CANCELLED로 변경되지 않았음을 확인 (payment.cancel() 미호출)
+    then(paymentRepository).should(never()).save(any());
+  }
+
+  @Test
+  @DisplayName("결제 처리 실패 - 예매 없음 → RuntimeException")
+  void processPayment_예매없음_예외() {
+    // given
+    given(paymentRepository.findByTossOrderId(event.getTossOrderId()))
+        .willReturn(Optional.empty());
+    given(reservationRepository.findById(event.getReservationId()))
+        .willReturn(Optional.empty());
+
+    // when & then
+    assertThatThrownBy(() -> paymentService.processPayment(event))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessageContaining(String.valueOf(event.getReservationId()));
+
+    then(tossPaymentClient).should(never()).confirm(any());
+    then(eventPublisher).should(never()).publishPaymentCompleted(any());
+  }
+
+  @Test
+  @DisplayName("결제 처리 실패 - Toss 실패 시 실패 사유가 이벤트에 포함됨")
+  void processPayment_결제실패시_실패사유_이벤트포함() {
+    // given
+    given(paymentRepository.findByTossOrderId(event.getTossOrderId()))
+        .willReturn(Optional.empty());
+    given(reservationRepository.findById(event.getReservationId()))
+        .willReturn(Optional.of(reservation));
+    given(paymentRepository.save(any())).willAnswer(inv -> inv.getArgument(0));
+    willThrow(new RuntimeException("카드 한도 초과"))
+        .given(tossPaymentClient).confirm(any());
+
+    // when
+    paymentService.processPayment(event);
+
+    // then: 실패 이벤트가 발행되며 실패 사유가 null이 아님
+    then(eventPublisher).should().publishPaymentFailed(
+        org.mockito.ArgumentMatchers.argThat(e ->
+            e.getReason() != null && e.getReason().contains("카드 한도 초과")
+        )
+    );
+  }
+
+  @Test
+  @DisplayName("취소 요청 Consumer — 역직렬화 실패 시 RuntimeException으로 재시도 위임")
+  void handlePaymentCancelRequested_역직렬화실패_재시도위임() throws Exception {
+    given(objectMapper.readValue("bad-json", PaymentCancelEvent.class))
+        .willThrow(new com.fasterxml.jackson.core.JsonParseException(null, "bad json"));
+
+    assertThatThrownBy(() ->
+        paymentService.handlePaymentCancelRequested("bad-json", null))
+        .isInstanceOf(RuntimeException.class);
   }
 }

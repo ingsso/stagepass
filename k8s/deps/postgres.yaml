@@ -1,0 +1,51 @@
+# 데모 스코프: 인클러스터 PostgreSQL (emptyDir — Pod 재시작 시 데이터 소실)
+# 실무라면 AWS RDS 등 관리형 DB 를 사용하고, 접속 정보만 Secret 으로 주입합니다.
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  labels: { app: postgres }
+spec:
+  selector: { app: postgres }
+  ports:
+    - port: 5432
+      targetPort: 5432
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  labels: { app: postgres }
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: postgres }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          ports:
+            - containerPort: 5432
+          env:
+            - { name: POSTGRES_DB, value: stagepass }
+            - { name: POSTGRES_USER, value: stagepass }
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: stagepass-secret, key: db-password }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          readinessProbe:
+            exec:
+              command: ["pg_isready", "-U", "stagepass", "-d", "stagepass"]
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+          volumeMounts:
+            - { name: data, mountPath: /var/lib/postgresql/data }
+      volumes:
+        - name: data
+          emptyDir: {}

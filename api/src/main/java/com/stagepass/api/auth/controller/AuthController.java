@@ -1,5 +1,6 @@
 package com.stagepass.api.auth.controller;
 
+import jakarta.validation.Valid;
 import com.stagepass.api.auth.dto.*;
 import com.stagepass.api.auth.service.AuthService;
 import com.stagepass.common.response.ApiResponse;
@@ -20,14 +21,14 @@ public class AuthController {
 
   @Operation(summary = "회원가입", description = "이메일과 비밀번호로 신규 회원을 등록합니다.")
   @PostMapping("/signup")
-  public ResponseEntity<ApiResponse<Void>> signUp(@RequestBody SignUpRequest request) {
+  public ResponseEntity<ApiResponse<Void>> signUp(@Valid @RequestBody SignUpRequest request) {
     authService.signUp(request);
     return ResponseEntity.ok(ApiResponse.ok());
   }
 
   @Operation(summary = "로그인", description = "이메일과 비밀번호로 로그인하여 JWT 액세스/리프레시 토큰을 발급받습니다.")
   @PostMapping("/login")
-  public ResponseEntity<ApiResponse<TokenResponse>> login(@RequestBody LoginRequest request) {
+  public ResponseEntity<ApiResponse<TokenResponse>> login(@Valid @RequestBody LoginRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(authService.login(request)));
   }
 

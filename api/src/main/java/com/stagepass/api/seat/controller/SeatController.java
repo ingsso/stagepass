@@ -1,5 +1,6 @@
 package com.stagepass.api.seat.controller;
 
+import jakarta.validation.Valid;
 import com.stagepass.api.seat.dto.*;
 import com.stagepass.api.seat.service.SeatService;
 import com.stagepass.common.response.ApiResponse;
@@ -33,7 +34,7 @@ public class SeatController {
   public ResponseEntity<ApiResponse<SeatHoldResponse>> holdSeats(
       @Parameter(description = "회차 ID") @PathVariable Long showId,
       @AuthenticationPrincipal Long userId,
-      @RequestBody SeatHoldRequest request) {
+      @Valid @RequestBody SeatHoldRequest request) {
     return ResponseEntity.ok(ApiResponse.ok(seatService.holdSeats(showId, userId, request)));
   }
 

@@ -14,12 +14,28 @@ public class QueueRedisRepository {
   private final RedisTemplate<String, String> redisTemplate;
 
   private static final String QUEUE_KEY_PREFIX = "queue:";
+  private static final String QUEUE_SEQ_KEY_PREFIX = "queue:seq:";
 
-  // 대기열 진입 (score = 진입 시각 millis)
+  /**
+   * 대기열 진입. score = 회차별 INCR 시퀀스.
+   *
+   * score 로 System.currentTimeMillis() 를 쓰면 안 된다. 밀리초 단위라 동시 진입 시
+   * 동점이 대량으로 발생하고, 동점 멤버는 Redis 가 사전순으로 정렬한다. ZADD 와 ZRANK 는
+   * 별도 왕복이므로, 내가 ZADD 한 뒤 ZRANK 를 읽기 전에 같은 score 의 더 작은 userId 가
+   * 끼어들면 내 순번이 밀린다 → 두 사용자가 같은 순번을 읽는다.
+   * (1,000 VU 부하에서 중복 순번 10건 / 누락 10건 실측)
+   *
+   * INCR 시퀀스는 고유하고 단조 증가하므로 뒤에 들어온 멤버가 앞사람 순번을 밀 수 없다.
+   * ZADD NX(addIfAbsent) 로 이미 있는 멤버의 score 는 갱신하지 않는다 —
+   * 재진입(멱등 호출)이 사용자를 대기열 뒤로 밀어내지 않도록 한다.
+   */
   public void enter(Long showId, Long userId) {
     String key = QUEUE_KEY_PREFIX + showId;
-    double score = System.currentTimeMillis();
-    redisTemplate.opsForZSet().add(key, String.valueOf(userId), score);
+    Long seq = redisTemplate.opsForValue().increment(QUEUE_SEQ_KEY_PREFIX + showId);
+    if (seq == null) {
+      throw new IllegalStateException("대기열 시퀀스 발급 실패 showId=" + showId);
+    }
+    redisTemplate.opsForZSet().addIfAbsent(key, String.valueOf(userId), seq);
   }
 
   // 현재 순번 조회 (0-based → +1)

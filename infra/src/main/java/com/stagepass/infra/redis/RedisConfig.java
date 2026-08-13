@@ -1,5 +1,8 @@
 package com.stagepass.infra.redis;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.springframework.cache.CacheManager;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,13 +34,19 @@ public class RedisConfig {
 
   @Bean
   public CacheManager cacheManager(RedisConnectionFactory factory) {
+    ObjectMapper mapper = new ObjectMapper();
+    mapper.registerModule(new JavaTimeModule());
+    mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
+    // 타입 정보 없이 순수 JSON으로 직렬화 — 역직렬화 호환성 문제 방지
+    mapper.deactivateDefaultTyping();
+
     RedisCacheConfiguration config = RedisCacheConfiguration.defaultCacheConfig()
-        .entryTtl(Duration.ofSeconds(10))                          // 기본 TTL 10초
+        .entryTtl(Duration.ofSeconds(10))
         .serializeKeysWith(
             RedisSerializationContext.SerializationPair.fromSerializer(new StringRedisSerializer()))
         .serializeValuesWith(
             RedisSerializationContext.SerializationPair.fromSerializer(
-                new GenericJackson2JsonRedisSerializer()));
+                new GenericJackson2JsonRedisSerializer(mapper)));
 
     return RedisCacheManager.builder(factory)
         .cacheDefaults(config)

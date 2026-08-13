@@ -35,6 +35,9 @@ public class Payment extends BaseEntity {
 
   private String method;           // 카드, 가상계좌 등
 
+  @Column(length = 500)
+  private String failureReason;    // 실패 사유 (Toss API 에러 메시지)
+
   private LocalDateTime paidAt;
   private LocalDateTime cancelledAt;
 
@@ -53,8 +56,9 @@ public class Payment extends BaseEntity {
     this.paidAt = LocalDateTime.now();
   }
 
-  public void fail() {
+  public void fail(String reason) {
     this.status = PaymentStatus.FAILED;
+    this.failureReason = reason;
   }
 
   public void cancel() {

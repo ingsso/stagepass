@@ -1,5 +1,7 @@
 package com.stagepass.domain.performance;
 
+import com.stagepass.common.exception.BusinessException;
+import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.common.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
@@ -42,12 +44,16 @@ public class Show extends BaseEntity {
 
   public void decreaseAvailableSeats(int count) {
     if (this.availableSeats < count) {
-      throw new IllegalStateException("잔여 좌석이 부족합니다.");
+      throw new BusinessException(ErrorCode.SHOW_SOLD_OUT);
     }
     this.availableSeats -= count;
   }
 
   public void increaseAvailableSeats(int count) {
     this.availableSeats += count;
+  }
+
+  public void updateStatus(ShowStatus status) {
+    this.status = status;
   }
 }

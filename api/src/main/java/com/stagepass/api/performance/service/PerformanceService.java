@@ -5,6 +5,8 @@ import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.performance.*;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -17,20 +19,16 @@ public class PerformanceService {
   private final PerformanceRepository performanceRepository;
   private final ShowRepository showRepository;
 
-  // 공연 목록
+  // 공연 목록 (페이지네이션)
   @Transactional(readOnly = true)
-  public List<PerformanceResponse> getAll() {
-    return performanceRepository.findAll().stream()
-        .map(PerformanceResponse::new)
-        .toList();
+  public Page<PerformanceResponse> getAll(Pageable pageable) {
+    return performanceRepository.findAll(pageable).map(PerformanceResponse::new);
   }
 
-  // 공연 검색
+  // 공연 검색 (페이지네이션)
   @Transactional(readOnly = true)
-  public List<PerformanceResponse> search(String keyword) {
-    return performanceRepository.searchByTitle(keyword).stream()
-        .map(PerformanceResponse::new)
-        .toList();
+  public Page<PerformanceResponse> search(String keyword, Pageable pageable) {
+    return performanceRepository.searchByTitle(keyword, pageable).map(PerformanceResponse::new);
   }
 
   // 공연 상세

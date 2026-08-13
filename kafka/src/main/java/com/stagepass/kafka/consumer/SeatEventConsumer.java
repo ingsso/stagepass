@@ -25,11 +25,12 @@ public class SeatEventConsumer {
   public void handleSeatHoldExpired(String message, Acknowledgment ack) {
     try {
       SeatHoldEvent event = objectMapper.readValue(message, SeatHoldEvent.class);
-      log.info("[Kafka] 좌석 선점 만료 seatId={} userId={}", event.getSeatId(), event.getUserId());
+      log.info("[Kafka] seat hold expired seatId={} userId={}", event.getSeatId(), event.getUserId());
       // DB 상태는 AVAILABLE 유지 (Redis TTL 만료로 자동 해제)
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Kafka] 좌석 선점 만료 처리 실패 message={}", message, e);
+      log.error("[Kafka] seat hold expiry processing failed message={}", message, e);
+      ack.acknowledge(); // 부가 기능 — 손실 허용하고 offset 커밋
     }
   }
 
@@ -38,11 +39,12 @@ public class SeatEventConsumer {
     try {
       com.stagepass.kafka.event.PaymentResultEvent event =
           objectMapper.readValue(message, com.stagepass.kafka.event.PaymentResultEvent.class);
-      log.info("[Kafka] 결제 실패 → 좌석 해제 reservationId={}", event.getReservationId());
+      log.info("[Kafka] payment failed - releasing seat reservationId={}", event.getReservationId());
       // 해당 예매의 좌석들 AVAILABLE 복원은 ReservationConsumer에서 처리
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Kafka] 결제 실패 좌석 해제 처리 실패 message={}", message, e);
+      log.error("[Kafka] payment fail seat release processing failed message={}", message, e);
+      ack.acknowledge();
     }
   }
 
@@ -51,10 +53,11 @@ public class SeatEventConsumer {
     try {
       com.stagepass.kafka.event.PaymentResultEvent event =
           objectMapper.readValue(message, com.stagepass.kafka.event.PaymentResultEvent.class);
-      log.info("[Kafka] 결제 완료 → 좌석 확정 reservationId={}", event.getReservationId());
+      log.info("[Kafka] payment completed - confirming seat reservationId={}", event.getReservationId());
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Kafka] 결제 완료 좌석 확정 처리 실패 message={}", message, e);
+      log.error("[Kafka] payment complete seat confirm processing failed message={}", message, e);
+      ack.acknowledge();
     }
   }
 }

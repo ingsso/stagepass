@@ -29,10 +29,11 @@ public class QueueEventConsumer {
       QueueEvent event = objectMapper.readValue(message, QueueEvent.class);
       queueEntryRepository.findByShowIdAndUserId(event.getShowId(), event.getUserId())
           .ifPresent(QueueEntry::activate);
-      log.info("[Kafka] 대기열 입장 허가 showId={} userId={}", event.getShowId(), event.getUserId());
+      log.info("[Kafka] queue activated showId={} userId={}", event.getShowId(), event.getUserId());
       ack.acknowledge();
     } catch (Exception e) {
-      log.error("[Kafka] 대기열 입장 처리 실패 message={}", message, e);
+      log.error("[Kafka] queue activation processing failed message={}", message, e);
+      ack.acknowledge(); // 부가 기능 — 손실 허용하고 offset 커밋
     }
   }
 }

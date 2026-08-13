@@ -57,6 +57,11 @@ public class ApiPaymentService {
         .findByIdAndUserId(reservationIdFromRedis, userId)
         .orElseThrow(() -> new BusinessException(ErrorCode.RESERVATION_NOT_FOUND));
 
+    // 결제 금액 검증 — 클라이언트 조작 방지
+    if (!request.getAmount().equals(reservation.getTotalPrice())) {
+      throw new BusinessException(ErrorCode.PAYMENT_AMOUNT_MISMATCH);
+    }
+
     // 멱등성 체크
     if (paymentRepository.findByTossOrderId(request.getOrderId()).isPresent()) {
       throw new BusinessException(ErrorCode.DUPLICATE_PAYMENT);
@@ -74,7 +79,7 @@ public class ApiPaymentService {
 
     pendingPaymentRepository.delete(request.getOrderId()); // 사용 완료 후 제거
 
-    log.info("[Payment] 결제 요청 발행 reservationId={} orderId={}",
+    log.info("[Payment] payment request published reservationId={} orderId={}",
         reservation.getId(), request.getOrderId());
   }
 

@@ -71,6 +71,12 @@ bin/
 # Windows
 Thumbs.db
 
+# Claude Code
+.claude/
+
 # k6
 k6/data/test-data.json
-k6/results/
+
+# k6 원시 출력 (대용량, 검증 후 재생성 가능)
+k6/results/queue-raw.json
+k6/results/throughput-before.json

@@ -31,7 +31,7 @@ public class DataInitializer implements CommandLineRunner {
   private void createAdminIfAbsent() {
     String adminEmail = "admin@stagepass.test";
     if (userRepository.findByEmail(adminEmail).isPresent()) {
-      log.info("[DataInitializer] 어드민 계정 이미 존재 — 건너뜀");
+      log.info("[DataInitializer] admin account already exists - skipping");
       return;
     }
     User admin = User.builder()
@@ -42,6 +42,6 @@ public class DataInitializer implements CommandLineRunner {
         .role(UserRole.ADMIN)
         .build();
     userRepository.save(admin);
-    log.info("[DataInitializer] 어드민 계정 생성 완료: {}", adminEmail);
+    log.info("[DataInitializer] admin account created: {}", adminEmail);
   }
 }

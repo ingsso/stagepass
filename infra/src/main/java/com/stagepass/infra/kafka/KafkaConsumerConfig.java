@@ -9,6 +9,8 @@ import org.springframework.context.annotation.Configuration;
 import org.springframework.kafka.config.ConcurrentKafkaListenerContainerFactory;
 import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.listener.DefaultErrorHandler;
+import org.springframework.util.backoff.FixedBackOff;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -32,6 +34,9 @@ public class KafkaConsumerConfig {
     config.put(ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class);
     config.put(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG, "earliest");
     config.put(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG, false); // 수동 커밋
+    config.put(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG, 60_000);      // 기본 30s → 배치 처리 중 불필요한 리밸런싱 방지
+    config.put(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG, 10_000);   // session-timeout의 1/3
+    config.put(ConsumerConfig.MAX_POLL_RECORDS_CONFIG, 100);           // 한 번에 처리할 최대 레코드 수
     return new DefaultKafkaConsumerFactory<>(config);
   }
 
@@ -43,6 +48,8 @@ public class KafkaConsumerConfig {
     factory.getContainerProperties().setAckMode(
         org.springframework.kafka.listener.ContainerProperties.AckMode.MANUAL
     );
+    // 1초 간격 3회 재시도 후 에러 로그 기록하고 offset 커밋 (무한 재시도 방지)
+    factory.setCommonErrorHandler(new DefaultErrorHandler(new FixedBackOff(1_000L, 3)));
     return factory;
   }
 }

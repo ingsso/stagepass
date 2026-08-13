@@ -1,51 +1,85 @@
 package com.stagepass.notification.consumer;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.stagepass.infra.kafka.KafkaTopics;
 import com.stagepass.kafka.event.NotificationEvent;
 import com.stagepass.kafka.event.QueueEvent;
-import com.stagepass.notification.service.SseNotificationService;
+import com.stagepass.kafka.event.SeatExchangeEvent;
+import com.stagepass.kafka.event.TransferEvent;
+import com.stagepass.kafka.event.WaitlistEvent;
+import com.stagepass.notification.redis.RedisNotificationPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.kafka.annotation.KafkaListener;
 import org.springframework.kafka.support.Acknowledgment;
 import org.springframework.stereotype.Component;
 
+import java.util.function.Consumer;
+
 @Slf4j
 @Component
 @RequiredArgsConstructor
 public class NotificationConsumer {
 
-  private final SseNotificationService sseNotificationService;
+  private final RedisNotificationPublisher publisher;
   private final ObjectMapper objectMapper;
 
-  // 일반 알림 (예매 확정, 결제 실패 등)
   @KafkaListener(topics = KafkaTopics.NOTIFICATION_SEND, groupId = "notification-group")
   public void handleNotification(String message, Acknowledgment ack) {
-    try {
-      NotificationEvent event = objectMapper.readValue(message, NotificationEvent.class);
-      log.info("[Notification] 알림 수신 userId={} type={}", event.getUserId(), event.getType());
-      sseNotificationService.sendToUser(event.getUserId(), event.getType(), event.getMessage());
-      ack.acknowledge();
-    } catch (Exception e) {
-      log.error("[Notification] 알림 처리 실패 message={}", message, e);
-    }
+    handle(message, ack, NotificationEvent.class, event -> {
+      log.info("[Notification] received userId={} type={}", event.getUserId(), event.getType());
+      publisher.publish(event.getUserId(), event.getType(), event.getMessage());
+    });
   }
 
-  // 대기열 입장 허가 알림
+  @KafkaListener(topics = KafkaTopics.TRANSFER_CLAIMED, groupId = "notification-group")
+  public void handleTransferClaimed(String message, Acknowledgment ack) {
+    handle(message, ack, TransferEvent.class, event -> {
+      log.info("[Notification] transfer claimed fromUserId={}", event.getFromUserId());
+      publisher.publish(event.getFromUserId(), "TRANSFER_CLAIMED", "Your ticket has been transferred.");
+    });
+  }
+
+  @KafkaListener(topics = KafkaTopics.WAITLIST_NOTIFIED, groupId = "notification-group")
+  public void handleWaitlistNotified(String message, Acknowledgment ack) {
+    handle(message, ack, WaitlistEvent.class, event -> {
+      log.info("[Notification] waitlist notified userId={}", event.getUserId());
+      publisher.publish(event.getUserId(), "WAITLIST_NOTIFIED",
+          "A cancelled seat is available! Please complete your reservation within 10 minutes.");
+    });
+  }
+
+  @KafkaListener(topics = KafkaTopics.EXCHANGE_COMPLETED, groupId = "notification-group")
+  public void handleExchangeCompleted(String message, Acknowledgment ack) {
+    handle(message, ack, SeatExchangeEvent.class, event -> {
+      log.info("[Notification] seat exchange completed proposer={} receiver={}",
+          event.getProposerId(), event.getReceiverId());
+      publisher.publish(event.getProposerId(), "EXCHANGE_COMPLETED", "Seat exchange has been completed.");
+      publisher.publish(event.getReceiverId(), "EXCHANGE_COMPLETED", "Seat exchange has been completed.");
+    });
+  }
+
   @KafkaListener(topics = KafkaTopics.QUEUE_ACTIVATED, groupId = "notification-group")
   public void handleQueueActivated(String message, Acknowledgment ack) {
+    handle(message, ack, QueueEvent.class, event -> {
+      log.info("[Notification] queue activated userId={}", event.getUserId());
+      publisher.publish(event.getUserId(), "QUEUE_ACTIVATED",
+          "You have been admitted. Please select your seat now.");
+    });
+  }
+
+  private <T> void handle(String message, Acknowledgment ack, Class<T> type, Consumer<T> processor) {
     try {
-      QueueEvent event = objectMapper.readValue(message, QueueEvent.class);
-      log.info("[Notification] 대기열 입장 허가 userId={}", event.getUserId());
-      sseNotificationService.sendToUser(
-          event.getUserId(),
-          "QUEUE_ACTIVATED",
-          "입장이 허가되었습니다. 지금 바로 좌석을 선택해주세요."
-      );
+      T event = objectMapper.readValue(message, type);
+      processor.accept(event);
       ack.acknowledge();
+    } catch (JsonProcessingException e) {
+      log.error("[Notification] deserialization failed (poison pill) message={}", message, e);
+      ack.acknowledge(); // 포이즌 필 — 재처리 없이 offset 커밋
     } catch (Exception e) {
-      log.error("[Notification] 대기열 알림 처리 실패 message={}", message, e);
+      log.error("[Notification] processing failed message={}", message, e);
+      throw new RuntimeException(e); // DefaultErrorHandler 재시도 위임
     }
   }
 }

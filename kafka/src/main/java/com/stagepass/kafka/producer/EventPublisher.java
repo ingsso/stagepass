@@ -10,6 +10,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.stereotype.Component;
 
+import java.util.concurrent.TimeUnit;
+
 @Slf4j
 @Component
 @RequiredArgsConstructor
@@ -63,21 +65,33 @@ public class EventPublisher {
     publish(KafkaTopics.QUEUE_ACTIVATED, String.valueOf(event.getUserId()), event);
   }
 
+  public void publishTransferClaimed(TransferEvent event) {
+    publish(KafkaTopics.TRANSFER_CLAIMED, String.valueOf(event.getTransferId()), event);
+  }
+
+  public void publishWaitlistNotified(WaitlistEvent event) {
+    publish(KafkaTopics.WAITLIST_NOTIFIED, String.valueOf(event.getUserId()), event);
+  }
+
+  public void publishExchangeCompleted(SeatExchangeEvent event) {
+    publish(KafkaTopics.EXCHANGE_COMPLETED, String.valueOf(event.getExchangeId()), event);
+  }
+
+  public void publishPaymentCancelRequested(PaymentCancelEvent event) {
+    publish(KafkaTopics.PAYMENT_CANCEL_REQUESTED, String.valueOf(event.getReservationId()), event);
+  }
+
   private void publish(String topic, String key, Object event) {
     try {
       String message = objectMapper.writeValueAsString(event);
-      kafkaTemplate.send(topic, key, message)
-          .whenComplete((result, ex) -> {
-            if (ex != null) {
-              log.error("[Kafka] 발행 실패 topic={} key={} error={}", topic, key, ex.getMessage());
-            } else {
-              log.debug("[Kafka] 발행 성공 topic={} key={} offset={}",
-                  topic, key, result.getRecordMetadata().offset());
-            }
-          });
+      kafkaTemplate.send(topic, key, message).get(5, TimeUnit.SECONDS);
+      log.debug("[Kafka] published topic={} key={}", topic, key);
     } catch (JsonProcessingException e) {
-      log.error("[Kafka] 직렬화 실패 topic={} error={}", topic, e.getMessage());
-      throw new RuntimeException("Kafka 이벤트 직렬화 실패", e);
+      log.error("[Kafka] serialization failed topic={} error={}", topic, e.getMessage());
+      throw new RuntimeException("Kafka event serialization failed", e);
+    } catch (Exception e) {
+      log.error("[Kafka] publish failed topic={} key={} error={}", topic, key, e.getMessage());
+      throw new RuntimeException("Kafka event publish failed: " + topic, e);
     }
   }
 }

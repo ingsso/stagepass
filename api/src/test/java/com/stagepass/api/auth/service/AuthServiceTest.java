@@ -186,6 +186,20 @@ class AuthServiceTest {
   }
 
   @Test
+  @DisplayName("토큰 재발급 실패 - 만료된 리프레시 토큰")
+  void reissue_만료된토큰_예외() {
+    String expiredToken = "expired_refresh_token";
+
+    given(jwtProvider.validate(expiredToken))
+        .willThrow(new BusinessException(ErrorCode.EXPIRED_TOKEN));
+
+    assertThatThrownBy(() -> authService.reissue(expiredToken))
+        .isInstanceOf(BusinessException.class)
+        .extracting("errorCode")
+        .isEqualTo(ErrorCode.EXPIRED_TOKEN);
+  }
+
+  @Test
   @DisplayName("토큰 재발급 실패 - Redis 저장 토큰과 불일치")
   void reissue_토큰불일치_예외() {
     // given

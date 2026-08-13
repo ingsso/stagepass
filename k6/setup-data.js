@@ -41,7 +41,38 @@ function parse(res, label) {
 
 export default function () {
 
-  // ── 1. API 서버 일반 유저로 공연/회차 생성 ─────────────────
+  // ── 1. Admin 서버 로그인 ───────────────────────────────────
+  // 공연 등록과 회차 생성은 @PreAuthorize("hasRole('ADMIN')") 이므로 어드민 토큰이 필요하다.
+  // api/admin 이 동일한 JWT 시크릿을 쓰므로, admin 서버가 발급한 ROLE_ADMIN 토큰을
+  // API 서버(8080)에 그대로 사용할 수 있다.
+  const adminLoginRes = http.post(`${ADMIN_URL}/admin/auth/login`, JSON.stringify({
+    email: ADMIN_EMAIL, password: ADMIN_PASSWORD,
+  }), { headers: JSON_HEADERS });
+
+  const adminLogin = parse(adminLoginRes, 'Admin 로그인');
+  if (!adminLogin?.data?.accessToken) {
+    console.error(`Admin 로그인 실패 status=${adminLoginRes.status} body=${adminLoginRes.body}`);
+    console.error('admin 서버가 실행 중인지, admin@stagepass.test 계정이 존재하는지 확인하세요');
+    return;
+  }
+  const adminToken = adminLogin.data.accessToken;
+  console.log('Admin 로그인 성공');
+
+  // ── 2. 공연 생성 (어드민 권한 필요) ────────────────────────
+  const perfRes = http.post(`${BASE_URL}/api/performances`, JSON.stringify({
+    title: '부하테스트 공연', genre: 'MUSICAL', description: 'k6 테스트용',
+    venueName: '테스트 공연장', venueAddress: '서울시 강남구', runningTime: 120,
+  }), { headers: authHeader(adminToken) });
+
+  const perf = parse(perfRes, '공연 생성');
+  const performanceId = perf?.data?.id;
+  if (!performanceId) {
+    console.error(`공연 생성 실패 status=${perfRes.status} body=${perfRes.body}`);
+    return;
+  }
+  console.log(`공연 생성 성공 performanceId=${performanceId}`);
+
+  // ── 3. 좌석 조회용 일반 유저 로그인 ────────────────────────
   const userEmail = 'setup_user@stagepass.test';
 
   http.post(`${BASE_URL}/api/auth/signup`, JSON.stringify({
@@ -60,25 +91,11 @@ export default function () {
   const userToken = userLogin.data.accessToken;
   console.log('유저 로그인 성공');
 
-  // ── 2. 공연 생성 ──────────────────────────────────────────
-  const perfRes = http.post(`${BASE_URL}/api/performances`, JSON.stringify({
-    title: '부하테스트 공연', genre: 'MUSICAL', description: 'k6 테스트용',
-    venueName: '테스트 공연장', venueAddress: '서울시 강남구', runningTime: 120,
-  }), { headers: authHeader(userToken) });
-
-  const perf = parse(perfRes, '공연 생성');
-  const performanceId = perf?.data?.id;
-  if (!performanceId) {
-    console.error(`공연 생성 실패 status=${perfRes.status} body=${perfRes.body}`);
-    return;
-  }
-  console.log(`공연 생성 성공 performanceId=${performanceId}`);
-
-  // ── 3. 회차 생성 ──────────────────────────────────────────
+  // ── 4. 회차 생성 (어드민 권한 필요) ────────────────────────
   const showRes = http.post(
     `${BASE_URL}/api/performances/${performanceId}/shows`,
     JSON.stringify({ showDatetime: '2026-12-15T19:00:00', totalSeats: 100 }),
-    { headers: authHeader(userToken) }
+    { headers: authHeader(adminToken) }
   );
 
   const show = parse(showRes, '회차 생성');
@@ -88,20 +105,6 @@ export default function () {
     return;
   }
   console.log(`회차 생성 성공 showId=${showId}`);
-
-  // ── 4. Admin 서버 로그인 ───────────────────────────────────
-  const adminLoginRes = http.post(`${ADMIN_URL}/admin/auth/login`, JSON.stringify({
-    email: ADMIN_EMAIL, password: ADMIN_PASSWORD,
-  }), { headers: JSON_HEADERS });
-
-  const adminLogin = parse(adminLoginRes, 'Admin 로그인');
-  if (!adminLogin?.data?.accessToken) {
-    console.error(`Admin 로그인 실패 status=${adminLoginRes.status} body=${adminLoginRes.body}`);
-    console.error('admin 서버가 실행 중인지, admin@stagepass.test 계정이 존재하는지 확인하세요');
-    return;
-  }
-  const adminToken = adminLogin.data.accessToken;
-  console.log('Admin 로그인 성공');
 
   // ── 5. 구역 + 좌석 생성 (admin 서버, 10x10 = 100석) ────────
   const zoneRes = http.post(
