@@ -19,6 +19,7 @@
 - [자리 교환](#자리-교환)
 - [안정성 설계](#안정성-설계)
 - [부하 테스트 결과](#부하-테스트-결과-k6)
+- [Kubernetes 배포 (GitOps)](#kubernetes-배포-gitops)
 - [실행 방법](#실행-방법)
 
 <br>
@@ -722,6 +723,131 @@ INSERT 쿼리가 이미 `ON CONFLICT DO NOTHING`이라 제약 위반 예외 자�
 > **항상 "중복 없음"을 출력하고 있었습니다.** 순번을 메트릭으로 방출하고
 > 원시 출력(`--out json`)을 [`k6/verify-ranks.js`](k6/verify-ranks.js)로 전수 검사하도록 바꾼 뒤에야
 > 위 버그 2건이 드러났습니다.
+
+<br>
+
+## Kubernetes 배포 (GitOps)
+
+기존 배포는 EC2 단일 인스턴스에 수동으로 올리는 방식이었습니다. 배포 중 다운타임이 생기고,
+롤백하려면 이전 jar 를 다시 올려야 하며, "지금 서버에 뜬 게 어느 커밋인지"를 서버에 들어가야 알 수 있었습니다.
+
+같은 애플리케이션을 **Helm 차트로 패키징하고 ArgoCD 로 Git 을 단일 진실 공급원(Single Source of Truth)** 삼아
+배포하도록 재구성했습니다. 커밋 한 번이면 이미지 빌드부터 클러스터 반영까지 사람 손이 닿지 않습니다.
+
+> **데모 스코프** — 클러스터는 로컬 k3d, DB·Redis·Kafka 는 인클러스터입니다.
+> 실무라면 EKS + RDS · ElastiCache · MSK 를 대상으로 하고 `dependencies.*.enabled: false` 로 끕니다
+> ([`values-prod.yaml`](charts/stagepass/values-prod.yaml) 에 전환 방법을 주석으로 남겨두었습니다).
+
+### 파이프라인
+
+```mermaid
+graph LR
+    Dev["개발자<br/>git push (develop)"]
+    subgraph GHA["GitHub Actions"]
+        CI["CI<br/>build + test"]
+        CD["CD<br/>bootJar → 이미지 빌드"]
+    end
+    GHCR[("GHCR<br/>ghcr.io/ingsso/stagepass-api")]
+    Bump["values.yaml<br/>image.tag 범프 커밋"]
+    Repo[("Git 저장소<br/>charts/stagepass")]
+    Argo["ArgoCD<br/>automated sync<br/>prune + selfHeal"]
+    K8s["k3d 클러스터<br/>Deployment 롤링 업데이트"]
+
+    Dev --> CI
+    Dev --> CD
+    CD -->|push :sha7, :latest| GHCR
+    CD --> Bump --> Repo
+    Repo -->|폴링 감지| Argo
+    Argo -->|helm template → apply| K8s
+    GHCR -.->|image pull| K8s
+```
+
+**CI 와 CD 를 연결하는 고리는 "이미지 태그 범프 커밋"입니다.** Actions 가 이미지를 GHCR 에 올린 뒤
+`charts/stagepass/values.yaml` 의 `image.tag` 를 커밋 SHA 로 고쳐 되커밋하고, ArgoCD 는 그 변경을 감지해 배포합니다.
+배포를 지시하는 주체가 CI 가 아니라 **Git 저장소의 상태**라는 점이 GitOps 의 핵심입니다.
+
+### 구성 요소
+
+| 구성 | 경로 | 역할 |
+|------|------|------|
+| Helm 차트 | [`charts/stagepass/`](charts/stagepass/) | 앱 + 인클러스터 의존 서비스(Postgres/Redis/Kafka) 패키징 |
+| 환경별 값 | `values.yaml` · [`values-prod.yaml`](charts/stagepass/values-prod.yaml) | dev 기본값 / prod 는 달라지는 값만 오버라이드 |
+| ArgoCD Application | [`argocd/application.yaml`](argocd/application.yaml) | `develop` 브랜치의 `charts/stagepass` 를 추적, automated sync |
+| CI | [`.github/workflows/ci.yml`](.github/workflows/ci.yml) | 빌드 + 단위 테스트 (main·develop push / PR) |
+| CD | [`.github/workflows/cd.yaml`](.github/workflows/cd.yaml) | 이미지 빌드 → GHCR push → 차트 태그 범프 |
+| ServiceMonitor | [`templates/servicemonitor.yaml`](charts/stagepass/templates/servicemonitor.yaml) | Prometheus 가 `/actuator/prometheus` 수집 |
+
+**차트에 넣은 운영 설정**
+
+- `startupProbe` (5s × 30회) 로 느린 Spring 기동을 흡수 — 없으면 liveness 가 기동 중인 Pod 를 죽여 CrashLoop 에 빠집니다
+- `Secret` 분리 (`secrets.create`) — 운영에서는 `false` 로 두고 Sealed Secrets / External Secrets 가 만든 Secret 을 참조
+- Application 에 `resources-finalizer` — Application 삭제 시 워크로드가 고아로 남지 않도록
+- CD 워크플로우 `concurrency` 그룹 — 동시 실행이 태그 범프 커밋에서 충돌하지 않도록
+
+### 검증 결과
+
+| 검증 항목 | 방법 | 결과 |
+|-----------|------|------|
+| 커밋 → 자동 배포 | 코드 커밋 후 ArgoCD 반영까지 측정 | **약 3분 40초** (기본 폴링 주기 3분 포함) |
+| selfHeal 복원 | `kubectl scale --replicas=1` 로 Git 상태와 어긋나게 만듦 | **약 5초** 만에 3개로 자동 복원 |
+| 롤백 | `helm rollback` | 이전 리비전(replicas 3 → 2)으로 즉시 복원 |
+| CI → CD 완주 | 커밋 → GHCR push → 태그 범프 커밋 → 롤링 배포 | **E2E 2회 완주** |
+| 무한 트리거 방지 | 범프 커밋이 CD 를 재트리거하지 않는지 | 재트리거 없음 (3중 안전장치) |
+| 메트릭 수집 | Prometheus `up{job="stagepass"}` | 타깃 **3/3 up**, JVM·HTTP·HikariCP 메트릭 수집 확인 |
+
+![ArgoCD 가 CI 의 태그 범프 커밋을 감지해 동기화한 화면](docs/images/argocd-ci-bump-sync.png)
+
+> 커밋 Author 가 `github-actions[bot]` 입니다 — 사람이 아니라 파이프라인이 배포를 일으켰다는 증거입니다.
+
+### 재현 방법
+
+```bash
+# 1. 클러스터 생성 (로드밸런서 8088 → 80)
+k3d cluster create stagepass --agents 1 -p "8088:80@loadbalancer"
+
+# 2. ArgoCD 설치
+#    ★ kubectl apply 는 실패합니다 — ApplicationSet CRD 어노테이션이 262KB 제한을 넘습니다
+kubectl create namespace argocd
+kubectl apply -n argocd --server-side=true --force-conflicts \
+  -f https://raw.githubusercontent.com/argoproj/argo-cd/stable/manifests/install.yaml
+
+# 3. (선택) 관측 스택 — ServiceMonitor CRD 가 필요합니다
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install monitoring prometheus-community/kube-prometheus-stack \
+  -n monitoring --create-namespace
+
+# 4. Application 등록 → 이후는 ArgoCD 가 알아서 합니다
+kubectl apply -f argocd/application.yaml
+```
+
+Helm 단독으로 배포·롤백만 확인하려면:
+
+```bash
+helm install stagepass charts/stagepass                                    # dev
+helm upgrade stagepass charts/stagepass -f charts/stagepass/values-prod.yaml   # prod 오버라이드
+helm history stagepass
+helm rollback stagepass 1
+```
+
+ArgoCD 대시보드 / Grafana 접속:
+
+```bash
+kubectl -n argocd port-forward svc/argocd-server 8443:443
+kubectl -n argocd get secret argocd-initial-admin-secret -o jsonpath="{.data.password}" | base64 -d
+
+kubectl -n monitoring port-forward svc/monitoring-grafana 3000:80
+```
+
+### 부딪힌 문제와 해결
+
+| 증상 | 원인 | 해결 |
+|------|------|------|
+| ArgoCD 설치가 `metadata.annotations too long` 으로 실패 | ApplicationSet CRD 어노테이션이 kubectl 의 262KB 제한 초과 | `--server-side=true --force-conflicts` 로 적용 |
+| CD 가 `Cache export is not supported for the docker driver` 로 실패 | `cache-to: type=gha` 는 buildx 드라이버가 필요 | `docker/setup-buildx-action` 단계 추가 |
+| GHCR push 가 경로 오류로 실패 | GHCR 경로는 소문자만 허용 (`ingsso` ≠ `ingSso`) | `github.repository_owner` 를 `tr '[:upper:]' '[:lower:]'` 처리 |
+| `port-forward svc/stagepass` 가 Redis 로 연결됨 | Service 셀렉터가 `name`+`instance` 뿐이라 같은 차트가 배포한 postgres/redis/kafka Pod 까지 매칭. named port 덕에 endpoints 는 정상으로 보여 조용히 숨어 있었음 | 셀렉터에 `component: api` 추가 (`Deployment.spec.selector` 는 불변이라 재설치 필요) |
+| Prometheus 수집 대상이 0건 (에러 없음) | **ServiceMonitor 의 selector 는 Pod 가 아니라 Service 를 고릅니다.** Pod 라벨에만 `component` 를 넣어 Service 가 매칭되지 않음 | Service 메타데이터에도 `component` 라벨 추가 |
+| 앱이 CrashLoopBackOff | Kafka 브로커 없이는 기동 자체가 불가 — 차트 스코프에서 뺄 수 없음 | 인클러스터 Kafka(KRaft) 를 차트에 포함 |
 
 <br>
 
