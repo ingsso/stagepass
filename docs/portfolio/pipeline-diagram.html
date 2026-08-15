@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8">
+<style>
+  :root {
+    --surface: #FFFFFF;
+    --ink:     #14181E;
+    --muted:   #59616E;
+    --rule:    #DEE3E9;
+    --accent:  #1F5C8B;
+    --accent-w:#E8F0F6;
+    --sans: "Pretendard Variable", "Pretendard", "Malgun Gothic", "맑은 고딕", sans-serif;
+    --mono: "Cascadia Mono", "Consolas", "D2Coding", monospace;
+  }
+  html, body { margin: 0; padding: 0; background: transparent; }
+  .pad { padding: 10px; width: 760px; }
+  svg.diagram { display: block; width: 760px; height: auto; }
+  .diagram .box       { fill: var(--surface); stroke: var(--rule); stroke-width: 1.2; }
+  .diagram .box-key   { fill: var(--accent-w); stroke: var(--accent); stroke-width: 1.4; }
+  .diagram .flow      { stroke: var(--ink); stroke-width: 1.3; fill: none; }
+  .diagram .flow-dash { stroke: var(--muted); stroke-width: 1.2; fill: none; stroke-dasharray: 4 3; }
+  .diagram .flow-heal { stroke: var(--accent); stroke-width: 1.3; fill: none; }
+  .diagram .mk        { fill: var(--ink); }
+  .diagram .mk-heal   { fill: var(--accent); }
+  .diagram text       { font-family: var(--sans); fill: var(--ink); }
+  .diagram .n-name    { font-size: 12px; font-weight: 700; }
+  .diagram .n-sub     { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+  .diagram .lbl       { font-family: var(--mono); font-size: 9.5px; fill: var(--muted); }
+  .diagram .lbl-heal  { font-family: var(--mono); font-size: 9.5px; fill: var(--accent); font-weight: 700; }
+</style></head><body><div class="pad">
+      <svg class="diagram" viewBox="0 0 760 292" role="img"
+           aria-label="개발자의 코드 push가 GitHub Actions에서 이미지를 빌드해 GHCR에 올리고, Actions가 Helm values.yaml의 이미지 태그를 Git에 되커밋하면 ArgoCD가 그 커밋을 감지해 k3d 클러스터에 배포하는 흐름. 클러스터의 드리프트는 ArgoCD가 selfHeal로 되돌린다.">
+        <defs>
+          <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path class="mk" d="M0 0 L10 5 L0 10 Z"></path>
+          </marker>
+          <marker id="ah-heal" viewBox="0 0 10 10" refX="9" refY="5"
+                  markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path class="mk-heal" d="M0 0 L10 5 L0 10 Z"></path>
+          </marker>
+        </defs>
+
+        <!-- 윗줄: 코드 → 이미지 -->
+        <rect class="box" x="6" y="30" width="104" height="46" rx="2"></rect>
+        <text class="n-name" x="58" y="50" text-anchor="middle">개발자</text>
+        <text class="n-sub"  x="58" y="64" text-anchor="middle">git push</text>
+
+        <rect class="box" x="186" y="30" width="156" height="46" rx="2"></rect>
+        <text class="n-name" x="264" y="50" text-anchor="middle">GitHub Actions</text>
+        <text class="n-sub"  x="264" y="64" text-anchor="middle">bootJar → 이미지 빌드</text>
+
+        <rect class="box" x="444" y="30" width="124" height="46" rx="2"></rect>
+        <text class="n-name" x="506" y="50" text-anchor="middle">GHCR</text>
+        <text class="n-sub"  x="506" y="64" text-anchor="middle">stagepass-api</text>
+
+        <line class="flow" x1="112" y1="53" x2="180" y2="53" marker-end="url(#ah)"></line>
+        <text class="lbl" x="146" y="45" text-anchor="middle">develop</text>
+
+        <line class="flow" x1="344" y1="53" x2="438" y2="53" marker-end="url(#ah)"></line>
+        <text class="lbl" x="391" y="45" text-anchor="middle">push :커밋SHA</text>
+
+        <!-- 아랫줄: Git → 동기화 → 클러스터 -->
+        <rect class="box-key" x="150" y="196" width="196" height="46" rx="2"></rect>
+        <text class="n-name" x="248" y="216" text-anchor="middle">Git 저장소</text>
+        <text class="n-sub"  x="248" y="230" text-anchor="middle">charts/stagepass/values.yaml</text>
+
+        <rect class="box" x="406" y="196" width="110" height="46" rx="2"></rect>
+        <text class="n-name" x="461" y="216" text-anchor="middle">ArgoCD</text>
+        <text class="n-sub"  x="461" y="230" text-anchor="middle">automated sync</text>
+
+        <rect class="box" x="576" y="196" width="176" height="46" rx="2"></rect>
+        <text class="n-name" x="664" y="216" text-anchor="middle">k3d 클러스터</text>
+        <text class="n-sub"  x="664" y="230" text-anchor="middle">Deployment 롤링 업데이트</text>
+
+        <!-- Actions → Git 되커밋 (CI와 CD를 잇는 고리) -->
+        <line class="flow" x1="248" y1="78" x2="248" y2="190" marker-end="url(#ah)"></line>
+        <text class="lbl" x="259" y="116">image.tag 를</text>
+        <text class="lbl" x="259" y="130">커밋 SHA 로 범프</text>
+        <text class="lbl" x="259" y="144">— 되커밋</text>
+
+        <!-- Git → ArgoCD -->
+        <line class="flow" x1="348" y1="219" x2="400" y2="219" marker-end="url(#ah)"></line>
+        <text class="lbl" x="374" y="211" text-anchor="middle">3분 폴링</text>
+
+        <!-- ArgoCD → 클러스터 -->
+        <line class="flow" x1="518" y1="219" x2="570" y2="219" marker-end="url(#ah)"></line>
+        <text class="lbl" x="544" y="211" text-anchor="middle">apply</text>
+
+        <!-- GHCR → 클러스터 (이미지 pull) -->
+        <path class="flow-dash" d="M506 78 L506 160 L664 160 L664 190" marker-end="url(#ah)"></path>
+        <text class="lbl" x="585" y="153" text-anchor="middle">image pull</text>
+
+        <!-- 클러스터 → ArgoCD (selfHeal) -->
+        <path class="flow-heal" d="M664 244 L664 272 L461 272 L461 248" marker-end="url(#ah-heal)"></path>
+        <text class="lbl-heal" x="563" y="265" text-anchor="middle">드리프트 감지 → selfHeal 복원</text>
+      </svg>
+</div></body></html>
