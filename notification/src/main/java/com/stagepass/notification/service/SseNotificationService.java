@@ -5,7 +5,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-import java.io.IOException;
 import java.util.List;
 
 @Slf4j
@@ -46,10 +45,16 @@ public class SseNotificationService {
       try {
         emitter.send(SseEmitter.event().name(type).data(message));
         log.debug("[SSE] sent userId={} type={}", userId, type);
-      } catch (IOException e) {
+      } catch (Exception e) {
+        // IOException(끊긴 연결) 외에 이미 에러난 AsyncContext 에서 IllegalStateException 도 올라옵니다.
+        // 여기서 안 잡으면 죽은 emitter 하나 때문에 같은 유저의 나머지 연결이 전부 못 받습니다.
         log.warn("[SSE] send failed userId={} type={} - removing emitter", userId, type);
         emitterRepository.delete(userId, emitter);
-        emitter.completeWithError(e);
+        try {
+          emitter.completeWithError(e);
+        } catch (Exception ignored) {
+          // 이미 완료·에러 처리된 emitter — 무시
+        }
       }
     }
   }
