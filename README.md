@@ -126,7 +126,7 @@ Reservation 저장 (PENDING) + seat.hold 이벤트 발행
 | API 문서 | SpringDoc OpenAPI (Swagger UI) |
 | 테스트 | JUnit 5, Mockito, Testcontainers |
 | 로컬 인프라 | Docker Compose |
-
+| Frontend | Next.js, TypeScript ([stagepass-web](https://github.com/ingsso/stagepass-web)) |
 <br>
 
 ## 시스템 아키텍처
@@ -510,6 +510,19 @@ resilience4j:
   Kafka Consumer(서버 B) → Redis Publish(notification:{userId})
   서버 A → PatternTopic("notification:*") Subscribe → SSE push ✅
 ```
+
+실제로 인스턴스 2개(+ nginx 로드밸런서)를 띄우고, **SSE 연결과 Kafka 컨슈머가 서로 다른 인스턴스인 상태**에서
+알림이 전달되는지 확인했습니다 — 검증 항목 12건 전부 통과(연속 2회).
+
+| 검증 | 결과 |
+|------|------|
+| Redis 발행 → emitter 보유 인스턴스만 SSE 전송 (격리 포함) | PASS |
+| Kafka `notification.send` → Redis → SSE E2E | PASS |
+| **컨슈머는 notification-2, SSE 연결은 notification-1 인 상태에서 전달** | PASS |
+| nginx(8090) 로드밸런서 경유 SSE 연결 | PASS |
+
+실행 로그·재현 방법: [`docs/verification/sse-scale-verification.md`](docs/verification/sse-scale-verification.md)
+(환경 `docker-compose-scale.yml`, 스크립트 `scripts/verify-sse-scale.ps1`)
 
 ### Kafka Producer 설정
 ```java
