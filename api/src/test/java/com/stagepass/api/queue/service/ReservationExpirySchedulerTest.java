@@ -1,6 +1,5 @@
 package com.stagepass.api.queue.service;
 
-import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.domain.performance.Performance;
 import com.stagepass.domain.performance.Show;
 import com.stagepass.domain.performance.ShowStatus;
@@ -15,12 +14,14 @@ import com.stagepass.domain.user.User;
 import com.stagepass.domain.user.UserRole;
 import com.stagepass.infra.redis.SeatRedisRepository;
 import com.stagepass.kafka.event.NotificationEvent;
+import com.stagepass.kafka.event.ReservationEvent;
 import com.stagepass.kafka.producer.EventPublisher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -54,7 +55,6 @@ class ReservationExpirySchedulerTest {
     @Mock private ReservationSeatRepository reservationSeatRepository;
     @Mock private SeatRedisRepository seatRedisRepository;
     @Mock private EventPublisher eventPublisher;
-    @Mock private WaitlistService waitlistService;
     @Mock private QueueService queueService;
     @Mock private QueueEntryRepository queueEntryRepository;
 
@@ -95,7 +95,10 @@ class ReservationExpirySchedulerTest {
       assertThat(result).hasSize(1);
       assertThat(reservation.getStatus()).isEqualTo(ReservationStatus.EXPIRED);
       then(eventPublisher).should().publishNotification(any(NotificationEvent.class));
-      then(waitlistService).should().notifyNext(100L);
+      ArgumentCaptor<ReservationEvent> captor = ArgumentCaptor.forClass(ReservationEvent.class);
+      then(eventPublisher).should().publishReservationExpired(captor.capture());
+      assertThat(captor.getValue().getReservationId()).isEqualTo(10L);
+      assertThat(captor.getValue().getShowId()).isEqualTo(100L);
     }
 
     @Test
@@ -129,7 +132,7 @@ class ReservationExpirySchedulerTest {
 
       assertThat(result).isEmpty();
       then(eventPublisher).should(never()).publishNotification(any());
-      then(waitlistService).should(never()).notifyNext(any());
+      then(eventPublisher).should(never()).publishReservationExpired(any());
     }
   }
 

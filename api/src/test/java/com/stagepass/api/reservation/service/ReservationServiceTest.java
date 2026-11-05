@@ -1,7 +1,6 @@
 package com.stagepass.api.reservation.service;
 
 import com.stagepass.api.queue.service.QueueService;
-import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.performance.Performance;
@@ -48,7 +47,6 @@ class ReservationServiceTest {
   @Mock private ReservationSeatRepository reservationSeatRepository;
   @Mock private SeatRedisRepository seatRedisRepository;
   @Mock private EventPublisher eventPublisher;
-  @Mock private WaitlistService waitlistService;
   @Mock private QueueService queueService;
   @Mock private QueueEntryRepository queueEntryRepository;
 

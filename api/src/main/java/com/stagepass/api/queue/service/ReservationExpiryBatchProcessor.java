@@ -1,6 +1,5 @@
 package com.stagepass.api.queue.service;
 
-import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.domain.queue.QueueEntryRepository;
 import com.stagepass.domain.queue.QueueStatus;
 import com.stagepass.domain.reservation.Reservation;
@@ -8,6 +7,7 @@ import com.stagepass.domain.reservation.ReservationRepository;
 import com.stagepass.domain.reservation.ReservationSeatRepository;
 import com.stagepass.infra.redis.SeatRedisRepository;
 import com.stagepass.kafka.event.NotificationEvent;
+import com.stagepass.kafka.event.ReservationEvent;
 import com.stagepass.kafka.event.SeatHoldEvent;
 import com.stagepass.kafka.producer.EventPublisher;
 import lombok.RequiredArgsConstructor;
@@ -30,7 +30,6 @@ public class ReservationExpiryBatchProcessor {
   private final ReservationSeatRepository reservationSeatRepository;
   private final SeatRedisRepository seatRedisRepository;
   private final EventPublisher eventPublisher;
-  private final WaitlistService waitlistService;
   private final QueueService queueService;
   private final QueueEntryRepository queueEntryRepository;
 
@@ -70,7 +69,8 @@ public class ReservationExpiryBatchProcessor {
             showIdsNeedingActivation.add(showId);
           });
 
-      waitlistService.notifyNext(showId);
+      // 만료 이벤트 발행 → WaitlistReleaseConsumer 가 취소 대기 1순위에게 알림
+      eventPublisher.publishReservationExpired(new ReservationEvent(reservation.getId(), userId, showId));
 
       eventPublisher.publishNotification(new NotificationEvent(
           userId, "RESERVATION_EXPIRED", "Your reservation has expired. Seat hold has been released."

@@ -2,7 +2,6 @@ package com.stagepass.api.reservation.service;
 
 import com.stagepass.api.queue.service.QueueService;
 import com.stagepass.api.reservation.dto.ReservationResponse;
-import com.stagepass.api.waitlist.service.WaitlistService;
 import com.stagepass.common.exception.BusinessException;
 import com.stagepass.common.exception.ErrorCode;
 import com.stagepass.domain.queue.QueueEntryRepository;
@@ -31,7 +30,6 @@ public class ReservationService {
   private final ReservationSeatRepository reservationSeatRepository;
   private final SeatRedisRepository seatRedisRepository;
   private final EventPublisher eventPublisher;
-  private final WaitlistService waitlistService;
   private final QueueService queueService;
   private final QueueEntryRepository queueEntryRepository;
 
@@ -72,11 +70,8 @@ public class ReservationService {
       eventPublisher.publishPaymentCancelRequested(new PaymentCancelEvent(reservationId, userId));
     }
 
-    // Kafka 취소 이벤트 발행 → 알림 Consumer 처리
+    // Kafka 취소 이벤트 발행 → WaitlistReleaseConsumer 가 취소 대기 1순위에게 알림
     eventPublisher.publishReservationCancelled(new ReservationEvent(reservationId, userId, showId));
-
-    // 취소 대기 첫 번째 대기자에게 알림
-    waitlistService.notifyNext(showId);
 
     // ACTIVATED 상태 큐 슬롯이 반환되면 다음 배치 활성화
     queueEntryRepository.findByShowIdAndUserId(showId, userId)

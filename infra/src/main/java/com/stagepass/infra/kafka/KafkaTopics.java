@@ -18,6 +18,7 @@ public final class KafkaTopics {
   // 예매
   public static final String RESERVATION_CONFIRMED = "reservation.confirmed";
   public static final String RESERVATION_CANCELLED = "reservation.cancelled";
+  public static final String RESERVATION_EXPIRED = "reservation.expired";
 
   // 알림
   public static final String NOTIFICATION_SEND = "notification.send";

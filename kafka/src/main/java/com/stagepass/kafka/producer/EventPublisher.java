@@ -53,6 +53,10 @@ public class EventPublisher {
     publish(KafkaTopics.RESERVATION_CANCELLED, String.valueOf(event.getReservationId()), event);
   }
 
+  public void publishReservationExpired(ReservationEvent event) {
+    publish(KafkaTopics.RESERVATION_EXPIRED, String.valueOf(event.getReservationId()), event);
+  }
+
   public void publishNotification(NotificationEvent event) {
     publish(KafkaTopics.NOTIFICATION_SEND, String.valueOf(event.getUserId()), event);
   }

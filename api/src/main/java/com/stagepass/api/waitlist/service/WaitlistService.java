@@ -17,7 +17,6 @@ import com.stagepass.kafka.producer.EventPublisher;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -81,9 +80,12 @@ public class WaitlistService {
     log.info("[Waitlist] left showId={} userId={}", showId, userId);
   }
 
-  // 예매 취소/만료 발생 시 첫 번째 대기자에게 알림
-  // REQUIRES_NEW: 호출자 트랜잭션과 분리 → 알림 실패가 예매 취소를 롤백시키지 않음
-  @Transactional(propagation = Propagation.REQUIRES_NEW)
+  // 예매 취소/만료/결제 실패 시 첫 번째 대기자에게 알림
+  // Kafka 컨슈머에서만 호출한다(WaitlistReleaseConsumer, PaymentFailureConsumer).
+  // 다른 @Transactional 안에서 직접 호출하면 안 된다 — 예전엔 REQUIRES_NEW 로 호출자와 분리했는데,
+  // 호출자가 커넥션을 쥔 채 두 번째 커넥션을 요구해 동시 요청이 풀 크기에 닿으면 자기 교착에 빠지고,
+  // 커넥션 획득/커밋 실패는 오히려 예매 취소를 롤백시켰다.
+  @Transactional
   public void notifyNext(Long showId) {
     // 손상된 데이터 파싱 실패는 Repository에서 null 반환으로 처리
     WaitlistPopResult popped = waitlistRedisRepository.popFirstEntry(showId);

@@ -412,7 +412,8 @@ Redis Sorted Set
 흐름
   1. 사용자 등록 → ZADD + DB WaitlistEntry 저장
      → 현재 순번(ZRANK + 1) / 전체 대기 수(ZCARD) 즉시 반환
-  2. 예매 취소 발생 (REQUIRES_NEW 별도 트랜잭션)
+  2. 예매 취소/만료 → reservation.cancelled / reservation.expired 발행
+     → waitlist-group 컨슈머가 취소·만료 트랜잭션 밖에서 notifyNext() 실행
      → ZPOPMIN으로 1순위 userId 추출
      → DB 조회 실패 시 userId를 ZADD로 복구 (고아 레코드 방지)
      → DB 상태 NOTIFIED 업데이트 (10분 예매 유효)
@@ -422,7 +423,8 @@ Redis Sorted Set
 
 - 이탈 시 순번 자동 재계산 (ZSet 특성 활용)
 - DB는 이력 보존용, 실시간 순번은 Redis가 단독 처리
-- `notifyNext()`는 `REQUIRES_NEW`로 호출자 트랜잭션과 분리 → 알림 실패가 예매 취소를 롤백시키지 않음
+- `notifyNext()`는 Kafka 컨슈머에서만 실행 → 알림 실패가 예매 취소를 롤백시키지 않고, 실패 시 컨슈머 재시도
+  (원래는 `REQUIRES_NEW`로 분리했으나 커넥션 풀 교착을 일으켜 교체 — [재현 테스트](#예매-취소-동시-요청--커넥션-풀-교착-재현-테스트))
 
 <br>
 
@@ -736,6 +738,45 @@ INSERT 쿼리가 이미 `ON CONFLICT DO NOTHING`이라 제약 위반 예외 자�
 > **항상 "중복 없음"을 출력하고 있었습니다.** 순번을 메트릭으로 방출하고
 > 원시 출력(`--out json`)을 [`k6/verify-ranks.js`](k6/verify-ranks.js)로 전수 검사하도록 바꾼 뒤에야
 > 위 버그 2건이 드러났습니다.
+
+### 예매 취소 동시 요청 — 커넥션 풀 교착 재현 테스트
+
+대기열의 `REQUIRES_NEW` 교착을 고친 뒤 같은 패턴이 남아 있는지 점검하다가, 예매 취소에서도 같은 구조를 찾았습니다.
+`@Transactional`인 `ReservationService.cancel()`이 커넥션을 쥔 채 `REQUIRES_NEW`인
+`WaitlistService.notifyNext()`를 호출해, 취소 요청 하나가 커넥션을 **2개** 요구했습니다.
+
+이 경로는 k6로 부하를 걸지 않고 **통합 테스트로 재현**했습니다
+([`ReservationCancelConnectionPoolIntegrationTest`](api/src/test/java/com/stagepass/api/reservation/service/ReservationCancelConnectionPoolIntegrationTest.java)).
+
+- 실제 PostgreSQL(Testcontainers) + HikariCP 풀 10개(기본값과 동일), `connection-timeout` 2초
+- 실제 `ReservationService.cancel()`을 10건 동시에 실행
+- 취소 이벤트 발행 시점(외부 트랜잭션이 커넥션을 쥔 상태)에서 10개 스레드를 `CyclicBarrier`로 맞춰,
+  풀의 커넥션 10개가 전부 외부 트랜잭션에 점유된 순간을 결정적으로 만듦
+
+같은 테스트를 수정 전 코드와 수정 후 코드에서 각각 실행한 결과입니다.
+
+| | 취소 성공 | DB에 반영된 취소 | 실패 원인 | 소요 |
+|--|--|--|--|--|
+| 수정 전 (`cancel()` → `REQUIRES_NEW` `notifyNext()`) | **0건 / 10** | 0건 | `CannotCreateTransactionException` 10건 | 2,235ms |
+| 수정 후 (`notifyNext()`를 Kafka 컨슈머로 이동) | **10건 / 10** | 10건 | 없음 | 241ms |
+
+수정 전 실패 로그 (HikariCP):
+```
+Connection is not available, request timed out after 2002ms (total=10, active=10, idle=0, waiting=0)
+```
+
+`REQUIRES_NEW`를 넣은 이유는 "알림 실패가 예매 취소를 롤백시키지 않도록"이었는데,
+안쪽 트랜잭션이 커넥션을 얻지 못하면 그 예외가 `cancel()`로 전파되어 **오히려 취소 10건이 전부 롤백**됐습니다.
+
+`cancel()`은 이미 `reservation.cancelled`를 발행하고 있었으므로, 이 이벤트(와 새로 추가한 `reservation.expired`)를
+`waitlist-group` 컨슈머가 구독해 `notifyNext()`를 실행하도록 옮겼습니다.
+`notifyNext()`는 바깥 트랜잭션 없이 자기 트랜잭션 하나로 실행되고(커넥션 1개), 실패 시 컨슈머 재시도에 맡깁니다.
+`@TransactionalEventListener(AFTER_COMMIT)` + `REQUIRES_NEW`는 쓰지 않았습니다 — `afterCommit` 시점에도
+바깥 커넥션이 아직 스레드에 바인딩되어 있어 같은 2개 점유가 일어나기 때문입니다.
+
+```bash
+./gradlew :api:test --tests "*ReservationCancelConnectionPoolIntegrationTest"   # Docker 필요
+```
 
 <br>
 

@@ -539,7 +539,8 @@ data: {"type":"EXCHANGE_COMPLETED","message":"자리 교환이 완료되었습�
 
 예매 취소 (사용자 직접)
   → api: 예매 상태 CANCELLED, Redis 선점 해제
-  → WaitlistService.notifyNext() [REQUIRES_NEW]: 1순위 대기자 추출 + NOTIFIED 상태
+  → reservation.cancelled 발행
+  → waitlist-group: WaitlistService.notifyNext() 1순위 대기자 추출 + NOTIFIED 상태
   → waitlist.notified 발행
   → notification: 대기 1순위 유저에게 SSE 알림 (10분 내 예매 안내)
 
