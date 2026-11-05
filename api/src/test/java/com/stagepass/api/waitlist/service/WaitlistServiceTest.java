@@ -164,13 +164,16 @@ class WaitlistServiceTest {
   }
 
   @Test
-  @DisplayName("notifyNext — DB 실패 시 원래 score로 Redis 복구 (순번 유지)")
+  @DisplayName("notifyNext — DB 실패 시 원래 score로 Redis 복구 후 예외 재전파 (컨슈머 재시도)")
   void notifyNext_DB실패시_원래score로_Redis복구() {
     given(waitlistRedisRepository.popFirstEntry(SHOW_ID)).willReturn(entry(USER_ID, ORIGINAL_SCORE));
     given(waitlistRepository.findByShowIdAndUserId(SHOW_ID, USER_ID))
         .willThrow(new RuntimeException("DB 장애"));
 
-    waitlistService.notifyNext(SHOW_ID);
+    // 삼키지 않고 다시 던져야 컨슈머가 ack 하지 않고 재시도한다
+    assertThatThrownBy(() -> waitlistService.notifyNext(SHOW_ID))
+        .isInstanceOf(RuntimeException.class)
+        .hasMessage("DB 장애");
 
     // 원래 score로 복구해야 순번 유지 (add()는 currentTimeMillis → 맨 뒤로 밀림)
     then(waitlistRedisRepository).should().addWithScore(eq(SHOW_ID), eq(USER_ID), eq(ORIGINAL_SCORE));

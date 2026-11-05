@@ -106,6 +106,9 @@ public class WaitlistService {
       // 원래 score로 복구 — add()는 currentTimeMillis를 score로 써서 순번이 소실됨
       waitlistRedisRepository.addWithScore(showId, nextUserId, originalScore);
       log.error("[Waitlist] notification failed, Redis restored showId={} userId={}", showId, nextUserId, e);
+      // 다시 던져야 트랜잭션이 롤백되고 컨슈머가 ack 하지 않아 재시도한다 — 재시도 시 같은 대기자가 다시 pop 된다.
+      // 삼키면 컨슈머가 성공으로 보고 ack 해서, 1순위는 Redis 에 복구되지만 다음 취소가 생길 때까지 알림이 안 간다
+      throw e;
     }
   }
 }

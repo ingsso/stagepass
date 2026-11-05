@@ -415,15 +415,18 @@ Redis Sorted Set
   2. 예매 취소/만료 → reservation.cancelled / reservation.expired 발행
      → waitlist-group 컨슈머가 취소·만료 트랜잭션 밖에서 notifyNext() 실행
      → ZPOPMIN으로 1순위 userId 추출
-     → DB 조회 실패 시 userId를 ZADD로 복구 (고아 레코드 방지)
      → DB 상태 NOTIFIED 업데이트 (10분 예매 유효)
      → waitlist.notified 발행 → SSE 알림 전송
+     → 실패 시 원래 score로 ZADD 복구 후 예외 재전파 → 롤백 + ack 안 함 → 컨슈머 재시도에서 같은 대기자를 다시 pop
   3. 대기 취소 → ZREM + DB 상태 CANCELLED
 ```
 
 - 이탈 시 순번 자동 재계산 (ZSet 특성 활용)
 - DB는 이력 보존용, 실시간 순번은 Redis가 단독 처리
 - `notifyNext()`는 Kafka 컨슈머에서만 실행 → 알림 실패가 예매 취소를 롤백시키지 않고, 실패 시 컨슈머 재시도
+  (`DefaultErrorHandler` 1초 간격 3회. 재시도를 다 써도 1순위는 Redis에 원래 순번으로 남아 다음 취소 때 다시 알림 대상이 됨.
+  재시도 동작은 [`WaitlistNotifyRetryIntegrationTest`](api/src/test/java/com/stagepass/api/waitlist/service/WaitlistNotifyRetryIntegrationTest.java)에서
+  실제 Redis로 검증 — 1차 DB 실패 → 같은 userId가 1순위로 복구 → 재시도에서 그 userId가 NOTIFIED)
   (원래는 `REQUIRES_NEW`로 분리했으나 커넥션 풀 교착을 일으켜 교체 — [재현 테스트](#예매-취소-동시-요청--커넥션-풀-교착-재현-테스트))
 
 <br>
